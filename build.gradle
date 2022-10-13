@@ -22,7 +22,7 @@ repositories {
 
 sourceCompatibility = 11
 group "io.kestra.plugin"
-description 'Plugin template for Kestra'
+description 'Airbyte plugin for Kestra'
 
 tasks.withType(JavaCompile) {
     options.encoding = "UTF-8"
@@ -44,9 +44,6 @@ dependencies {
 
     // kestra
     compileOnly group: "io.kestra", name: "core", version: kestraVersion
-
-    // libs included in the final jar
-    api group: 'com.google.code.gson', name: 'gson', version: '2.9.1'
 }
 
 
@@ -102,7 +99,7 @@ jar {
     manifest {
         attributes(
                 "X-Kestra-Title": project.name,
-                "X-Kestra-Group": project.group + ".templates",
+                "X-Kestra-Group": project.group + ".airbyte",
                 "X-Kestra-Description": project.description,
                 "X-Kestra-Version": project.version
         )
