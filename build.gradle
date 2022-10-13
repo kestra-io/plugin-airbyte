@@ -7,7 +7,7 @@ plugins {
     id 'ru.vyarus.github-info' version '1.4.0'
     id 'signing'
     id "io.github.gradle-nexus.publish-plugin" version "1.1.0"
-    id "com.github.ben-manes.versions" version "0.42.0"
+    id "com.github.ben-manes.versions" version "0.43.0"
     id 'net.researchgate.release' version '3.0.2'
 }
 
@@ -22,11 +22,17 @@ repositories {
 
 sourceCompatibility = 11
 group "io.kestra.plugin"
-description 'Plugin template for Kestra'
+description 'Airbyte plugin for Kestra'
 
 tasks.withType(JavaCompile) {
     options.encoding = "UTF-8"
     options.compilerArgs.add("-parameters")
+}
+
+configurations.all {
+    resolutionStrategy {
+        force("org.slf4j:slf4j-api:1.7.36")
+    }
 }
 
 dependencies {
@@ -44,9 +50,6 @@ dependencies {
 
     // kestra
     compileOnly group: "io.kestra", name: "core", version: kestraVersion
-
-    // libs included in the final jar
-    api group: 'com.google.code.gson', name: 'gson', version: '2.9.1'
 }
 
 
@@ -102,7 +105,7 @@ jar {
     manifest {
         attributes(
                 "X-Kestra-Title": project.name,
-                "X-Kestra-Group": project.group + ".templates",
+                "X-Kestra-Group": project.group + ".airbyte",
                 "X-Kestra-Description": project.description,
                 "X-Kestra-Version": project.version
         )

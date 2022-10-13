@@ -41,6 +41,10 @@ jobs:
       - name: Validate Gradle wrapper
         uses: gradle/wrapper-validation-action@v1
 
+#      - name: Build the docker-compose stack
+#        run: |
+#          docker-compose -f docker-compose-ci.yml up -d
+
       # Gradle check
       - name: Build with Gradle
         run: ./gradlew check
@@ -95,9 +99,9 @@ jobs:
           status: ${{ job.status }}
           job_name: Check & Publish
           fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
-          username: GitHub Actions
+          username: Github Actions
           icon_emoji: ':github-actions:'
-          channel: '#git'
+          channel: 'C02DQ1A7JLR'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
