@@ -12,6 +12,7 @@ import io.micronaut.http.MutableHttpRequest;
 import io.micronaut.http.client.DefaultHttpClientConfiguration;
 import io.micronaut.http.client.HttpClient;
 import io.micronaut.http.client.exceptions.HttpClientResponseException;
+import io.micronaut.http.client.netty.NettyHttpClientFactory;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -55,8 +56,10 @@ public abstract class AbstractAirbyteConnection extends Task implements DynamicT
     @PluginProperty(dynamic = true)
     String token;
 
+    private static final NettyHttpClientFactory FACTORY = new NettyHttpClientFactory();
+
     protected HttpClient client() throws IllegalVariableEvaluationException, MalformedURLException, URISyntaxException {
-        return HttpClient.create(URI.create(this.url).toURL(), new DefaultHttpClientConfiguration());
+        return FACTORY.createClient(URI.create(this.url).toURL(), new DefaultHttpClientConfiguration());
     }
 
     protected <REQ, RES> HttpResponse<RES> request(RunContext runContext, MutableHttpRequest<REQ> request, Argument<RES> argument) throws HttpClientResponseException {
