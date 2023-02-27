@@ -24,8 +24,10 @@ class SyncTest {
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
         Sync task = Sync.builder()
-            .url("http://localhost:48000")
-            .connectionId("e3b1ce92-547c-436f-b1e8-23b6936c12cd")
+            .url("http://localhost:8000")
+            .username("airbyte")
+            .password("password")
+            .connectionId("3ef5d9a0-4f16-42db-9ab5-8dd3c4822391")
             .build();
 
         Sync.Output runOutput = task.run(runContext);
