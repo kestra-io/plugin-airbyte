@@ -2,7 +2,6 @@ package io.kestra.plugin.airbyte;
 
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.models.annotations.PluginProperty;
-import io.kestra.core.models.tasks.DynamicTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.RunContext;
 import io.micronaut.core.type.Argument;
@@ -32,7 +31,7 @@ import javax.validation.constraints.NotNull;
 @EqualsAndHashCode
 @Getter
 @NoArgsConstructor
-public abstract class AbstractAirbyteConnection extends Task implements DynamicTask {
+public abstract class AbstractAirbyteConnection extends Task {
     @Schema(
         title = "The url of your Airbyte instance"
     )
