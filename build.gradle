@@ -52,6 +52,10 @@ dependencies {
 
     // kestra
     compileOnly group: "io.kestra", name: "core", version: kestraVersion
+
+    // kestra
+    api group: "com.airbyte", name: "api", version: "0.12.1"
+
 }
 
 
