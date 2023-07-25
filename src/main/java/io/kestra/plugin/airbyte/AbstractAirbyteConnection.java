@@ -33,7 +33,7 @@ import javax.validation.constraints.NotNull;
 @NoArgsConstructor
 public abstract class AbstractAirbyteConnection extends Task {
     @Schema(
-        title = "The url of your Airbyte instance"
+        title = "The URL of your Airbyte instance"
     )
     @PluginProperty(dynamic = true)
     @NotNull
@@ -62,7 +62,7 @@ public abstract class AbstractAirbyteConnection extends Task {
     protected HttpClient client(RunContext runContext) throws IllegalVariableEvaluationException, MalformedURLException, URISyntaxException {
         MediaTypeCodecRegistry mediaTypeCodecRegistry = runContext.getApplicationContext().getBean(MediaTypeCodecRegistry.class);
 
-        DefaultHttpClient client = (DefaultHttpClient) FACTORY.createClient(URI.create(this.url).toURL(), new DefaultHttpClientConfiguration());
+        DefaultHttpClient client = (DefaultHttpClient) FACTORY.createClient(URI.create(runContext.render(this.url)).toURL(), new DefaultHttpClientConfiguration());
         client.setMediaTypeCodecRegistry(mediaTypeCodecRegistry);
 
         return client;
