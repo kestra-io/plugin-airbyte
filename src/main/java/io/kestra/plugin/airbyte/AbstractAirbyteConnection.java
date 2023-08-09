@@ -62,7 +62,9 @@ public abstract class AbstractAirbyteConnection extends Task {
     protected HttpClient client(RunContext runContext) throws IllegalVariableEvaluationException, MalformedURLException, URISyntaxException {
         MediaTypeCodecRegistry mediaTypeCodecRegistry = runContext.getApplicationContext().getBean(MediaTypeCodecRegistry.class);
 
-        DefaultHttpClient client = (DefaultHttpClient) FACTORY.createClient(URI.create(runContext.render(this.url)).toURL(), new DefaultHttpClientConfiguration());
+        var httpConfig = new DefaultHttpClientConfiguration();
+        httpConfig.setMaxContentLength(Integer.MAX_VALUE);
+        DefaultHttpClient client = (DefaultHttpClient) FACTORY.createClient(URI.create(runContext.render(this.url)).toURL(), httpConfig);
         client.setMediaTypeCodecRegistry(mediaTypeCodecRegistry);
 
         return client;
