@@ -8,10 +8,7 @@ import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.utils.Await;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
-import io.kestra.plugin.airbyte.models.Attempt;
-import io.kestra.plugin.airbyte.models.AttemptInfo;
-import io.kestra.plugin.airbyte.models.JobInfo;
-import io.kestra.plugin.airbyte.models.JobStatus;
+import io.kestra.plugin.airbyte.models.*;
 import io.micronaut.core.type.Argument;
 import io.micronaut.http.HttpMethod;
 import io.micronaut.http.HttpRequest;
@@ -20,7 +17,6 @@ import io.micronaut.http.uri.UriTemplate;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.slf4j.Logger;
 
 import java.time.Duration;
@@ -28,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.kestra.core.utils.Rethrow.throwSupplier;
 
@@ -50,10 +47,8 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
     }
 )
 public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync.Output> {
-    private static final List<JobStatus> ENDED_STATUS = List.of(
-        JobStatus.INCOMPLETE,
+    private static final List<JobStatus> ENDED_JOB_STATUS = List.of(
         JobStatus.FAILED,
-        JobStatus.CANCELLED,
         JobStatus.SUCCEEDED
     );
 
@@ -69,7 +64,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     )
     @PluginProperty(dynamic = false)
     @Builder.Default
-    Boolean wait = true;
+    private Boolean wait = true;
 
     @Schema(
         title = "The max total wait duration"
@@ -82,9 +77,14 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Getter(AccessLevel.NONE)
     private transient Map<Integer, Integer> loggedLine = new HashMap<>();
 
+    private final Integer MAX_ATTEMPTS = 3;
+
     @Override
     public Sync.Output run(RunContext runContext) throws Exception {
         Logger logger = runContext.logger();
+
+        // Init with 1 as when triggering sync, an attempt is automatically generated
+        AtomicInteger attemptCounter = new AtomicInteger(1);
 
         // create sync
         HttpResponse<JobInfo> syncResponse = this.request(
@@ -131,8 +131,18 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                     JobInfo jobStatus = fetchJobRequest.getBody().get();
                     sendLog(logger, jobStatus);
 
+                    if (jobStatus.getAttempts().size() == MAX_ATTEMPTS) {
+                        return jobStatus;
+                    } else {
+                        // Handle case of failed attempt, Airbyte will start a new attempt
+                        if (jobStatus.getAttempts().size() > attemptCounter.get()) {
+                            logger.info("Creating a new sync attempt ...");
+                            attemptCounter.getAndIncrement();
+                        }
+                    }
+
                     // ended
-                    if (ENDED_STATUS.contains(jobStatus.getJob().getStatus())) {
+                    if (ENDED_JOB_STATUS.contains(jobStatus.getJob().getStatus())) {
                         return jobStatus;
                     }
                 }
@@ -151,16 +161,10 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .filter(Objects::nonNull)
             .forEach(attemptFailureSummary -> logger.warn("Failure with reason {}", attemptFailureSummary));
 
-        // handle failure
+        // handle failed attempt
         if (!finalJobStatus.getJob().getStatus().equals(JobStatus.SUCCEEDED)) {
-            String durationHumanized = DurationFormatUtils.formatDurationHMS(Duration.between(
-                finalJobStatus.getJob().getUpdatedAt(),
-                finalJobStatus.getJob().getCreatedAt()
-            ).toMillis());
 
-            throw new Exception("Failed run with status '" + finalJobStatus.getJob().getStatus() +
-                "' after " +  durationHumanized + ": " + finalJobStatus
-            );
+
         }
 
         // metrics
