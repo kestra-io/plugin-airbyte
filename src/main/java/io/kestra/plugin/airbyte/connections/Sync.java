@@ -80,8 +80,6 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Getter(AccessLevel.NONE)
     private transient Map<Integer, Integer> loggedLine = new HashMap<>();
 
-    private final Integer MAX_ATTEMPTS = 3;
-
     @Override
     public Sync.Output run(RunContext runContext) throws Exception {
         Logger logger = runContext.logger();
@@ -134,22 +132,19 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                     JobInfo jobStatus = fetchJobRequest.getBody().get();
                     sendLog(logger, jobStatus);
 
-                    if (jobStatus.getAttempts().size() == MAX_ATTEMPTS) {
-                        return jobStatus;
-                    } else {
-                        // Handle case of failed attempt, Airbyte will start a new attempt
-                        if (jobStatus.getAttempts().size() > attemptCounter.get()) {
-                            logger.info("Creating a new sync attempt ...");
-                            attemptCounter.getAndIncrement();
-                        }
-                    }
+                    JobStatus currentJobStatus = jobStatus.getJob().getStatus();;
 
                     // ended
-                    if (ENDED_JOB_STATUS.contains(jobStatus.getJob().getStatus())) {
+                    if (ENDED_JOB_STATUS.contains(currentJobStatus)) {
                         return jobStatus;
                     }
-                }
 
+                    // Handle case of failed attempt, Airbyte started a new attempt
+                    if (jobStatus.getAttempts().size() > attemptCounter.get() || currentJobStatus.equals(JobStatus.INCOMPLETE)) {
+                        logger.warn("Previous attempt failed, creating a new sync attempt ...");
+                        attemptCounter.getAndIncrement();
+                    }
+                }
                 return null;
             }),
             Duration.ofSeconds(1),
@@ -166,8 +161,10 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
         // handle failed attempt
         if (!finalJobStatus.getJob().getStatus().equals(JobStatus.SUCCEEDED)) {
-
-
+            int attemptCount = finalJobStatus.getAttempts().size();
+            throw new Exception("Failed run with status '" + finalJobStatus.getJob().getStatus() +
+                    "' after " +  attemptCount + " attempt(s) : " + finalJobStatus
+            );
         }
 
         // metrics
