@@ -52,6 +52,7 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync.Output> {
     private static final List<JobStatus> ENDED_JOB_STATUS = List.of(
         JobStatus.FAILED,
+        JobStatus.CANCELLED,
         JobStatus.SUCCEEDED
     );
 
