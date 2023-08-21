@@ -141,7 +141,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                     }
 
                     // Handle case of failed attempt, Airbyte started a new attempt
-                    if (jobStatus.getAttempts().size() > attemptCounter.get() || currentJobStatus.equals(JobStatus.INCOMPLETE)) {
+                    if (jobStatus.getAttempts().size() > attemptCounter.get()) {
                         logger.warn("Previous attempt failed, creating a new sync attempt ...");
                         attemptCounter.getAndIncrement();
                     }
