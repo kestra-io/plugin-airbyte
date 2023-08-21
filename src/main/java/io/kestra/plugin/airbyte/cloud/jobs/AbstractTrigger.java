@@ -70,14 +70,14 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         title = "Wait for the end of the job.",
         description = "Allowing to capture job status & logs"
     )
-    @PluginProperty(dynamic = false)
+    @PluginProperty
     @Builder.Default
     Boolean wait = true;
 
     @Schema(
         title = "The max total wait duration"
     )
-    @PluginProperty(dynamic = false)
+    @PluginProperty
     @Builder.Default
     Duration maxDuration = Duration.ofMinutes(60);
 

@@ -62,14 +62,14 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         title = "Wait for the end of the job.",
         description = "Allowing to capture job status & logs"
     )
-    @PluginProperty(dynamic = false)
+    @PluginProperty
     @Builder.Default
     private Boolean wait = true;
 
     @Schema(
         title = "The max total wait duration"
     )
-    @PluginProperty(dynamic = false)
+    @PluginProperty
     @Builder.Default
     Duration maxDuration = Duration.ofMinutes(60);
 
