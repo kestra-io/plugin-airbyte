@@ -133,10 +133,8 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                     JobInfo jobStatus = fetchJobRequest.getBody().get();
                     sendLog(logger, jobStatus);
 
-                    JobStatus currentJobStatus = jobStatus.getJob().getStatus();;
-
                     // ended
-                    if (ENDED_JOB_STATUS.contains(currentJobStatus)) {
+                    if (ENDED_JOB_STATUS.contains(jobStatus.getJob().getStatus())) {
                         return jobStatus;
                     }
 
