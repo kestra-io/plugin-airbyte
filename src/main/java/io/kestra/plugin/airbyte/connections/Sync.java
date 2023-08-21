@@ -20,7 +20,6 @@ import io.micronaut.http.uri.UriTemplate;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.slf4j.Logger;
 
 import java.time.Duration;
@@ -28,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.kestra.core.utils.Rethrow.throwSupplier;
 
@@ -50,8 +50,7 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
     }
 )
 public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync.Output> {
-    private static final List<JobStatus> ENDED_STATUS = List.of(
-        JobStatus.INCOMPLETE,
+    private static final List<JobStatus> ENDED_JOB_STATUS = List.of(
         JobStatus.FAILED,
         JobStatus.CANCELLED,
         JobStatus.SUCCEEDED
@@ -69,7 +68,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     )
     @PluginProperty
     @Builder.Default
-    Boolean wait = true;
+    private Boolean wait = true;
 
     @Schema(
         title = "The max total wait duration"
@@ -85,6 +84,9 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Override
     public Sync.Output run(RunContext runContext) throws Exception {
         Logger logger = runContext.logger();
+
+        // Init with 1 as when triggering sync, an attempt is automatically generated
+        AtomicInteger attemptCounter = new AtomicInteger(1);
 
         // create sync
         HttpResponse<JobInfo> syncResponse = this.request(
@@ -132,11 +134,16 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                     sendLog(logger, jobStatus);
 
                     // ended
-                    if (ENDED_STATUS.contains(jobStatus.getJob().getStatus())) {
+                    if (ENDED_JOB_STATUS.contains(jobStatus.getJob().getStatus())) {
                         return jobStatus;
                     }
-                }
 
+                    // Handle case of failed attempt, Airbyte started a new attempt
+                    if (jobStatus.getAttempts().size() > attemptCounter.get()) {
+                        logger.warn("Previous attempt failed, creating a new sync attempt ...");
+                        attemptCounter.getAndIncrement();
+                    }
+                }
                 return null;
             }),
             Duration.ofSeconds(1),
@@ -151,15 +158,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .filter(Objects::nonNull)
             .forEach(attemptFailureSummary -> logger.warn("Failure with reason {}", attemptFailureSummary));
 
-        // handle failure
+        // handle failed attempt
         if (!finalJobStatus.getJob().getStatus().equals(JobStatus.SUCCEEDED)) {
-            String durationHumanized = DurationFormatUtils.formatDurationHMS(Duration.between(
-                finalJobStatus.getJob().getUpdatedAt(),
-                finalJobStatus.getJob().getCreatedAt()
-            ).toMillis());
-
+            int attemptCount = finalJobStatus.getAttempts().size();
             throw new Exception("Failed run with status '" + finalJobStatus.getJob().getStatus() +
-                "' after " +  durationHumanized + ": " + finalJobStatus
+                    "' after " +  attemptCount + " attempt(s) : " + finalJobStatus
             );
         }
 

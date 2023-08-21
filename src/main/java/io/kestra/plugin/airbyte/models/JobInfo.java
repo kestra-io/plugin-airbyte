@@ -11,6 +11,5 @@ import java.util.List;
 @SuperBuilder
 public class JobInfo {
     Job job;
-
     List<AttemptInfo> attempts;
 }
