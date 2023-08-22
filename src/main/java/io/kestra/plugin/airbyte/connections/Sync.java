@@ -208,8 +208,6 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                     .forEach(msg -> {
                         if (msg.contains("ERROR[")) {
                             logger.error(msg);
-                        } else if (msg.contains("WARN[")) {
-                            logger.warn(msg);
                         } else if (msg.contains("DEBUG[")) {
                             logger.debug(msg);
                         } else if (msg.contains("TRACE[")) {
