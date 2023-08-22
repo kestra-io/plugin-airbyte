@@ -172,6 +172,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         finalJobStatus.getAttempts()
             .stream()
             .map(AttemptInfo::getAttempt)
+            .filter(attempt -> attempt.getStreamStats() != null)
             .flatMap(attempt -> attempt.getStreamStats().stream())
             .forEach(o -> {
                 if (o.getStats().getRecordsCommitted() != null) {
@@ -207,8 +208,6 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                     .forEach(msg -> {
                         if (msg.contains("ERROR[")) {
                             logger.error(msg);
-                        } else if (msg.contains("WARN[")) {
-                            logger.warn(msg);
                         } else if (msg.contains("DEBUG[")) {
                             logger.debug(msg);
                         } else if (msg.contains("TRACE[")) {
