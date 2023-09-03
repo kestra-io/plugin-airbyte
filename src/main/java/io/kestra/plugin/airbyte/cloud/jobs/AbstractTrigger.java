@@ -81,6 +81,13 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     @Builder.Default
     Duration maxDuration = Duration.ofMinutes(60);
 
+    @Schema(
+            title = "Specify frequency for state check API call"
+    )
+    @PluginProperty
+    @Builder.Default
+    Duration pollFrequency = Duration.ofSeconds(1);
+
     abstract protected JobTypeEnum syncType();
 
     @Override
@@ -122,7 +129,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
                 return null;
             }),
-            Duration.ofSeconds(1),
+            this.pollFrequency,
             this.maxDuration
         );
 

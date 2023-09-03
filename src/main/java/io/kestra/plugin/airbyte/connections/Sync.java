@@ -81,6 +81,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Getter(AccessLevel.NONE)
     private transient Map<Integer, Integer> loggedLine = new HashMap<>();
 
+    @Schema(
+            title = "Specify frequency for sync attempt state check API call"
+    )
+    @PluginProperty
+    @Builder.Default
+    Duration pollFrequency = Duration.ofSeconds(1);
+
     @Override
     public Sync.Output run(RunContext runContext) throws Exception {
         Logger logger = runContext.logger();
@@ -146,7 +153,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                 }
                 return null;
             }),
-            Duration.ofSeconds(1),
+            this.pollFrequency,
             this.maxDuration
         );
 
