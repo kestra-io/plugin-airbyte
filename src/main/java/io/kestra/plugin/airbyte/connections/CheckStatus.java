@@ -37,14 +37,14 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 @Getter
 @NoArgsConstructor
 @Schema(
-        title = "Run a sync on a connection"
+        title = "Check Job status of a running sync connection"
 )
 @Plugin(
         examples = {
                 @Example(
                         code = {
                                 "url: http://localhost:8080",
-                                "connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd",
+                                "jobId: 970",
                         }
                 )
         }
