@@ -74,7 +74,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     private transient Map<Integer, Integer> loggedLine = new HashMap<>();
 
     @Schema(
-            title = "Specify frequency for sync attempt state check API call"
+            title = "Specify how often the task should poll for the sync status"
     )
     @PluginProperty
     @Builder.Default
