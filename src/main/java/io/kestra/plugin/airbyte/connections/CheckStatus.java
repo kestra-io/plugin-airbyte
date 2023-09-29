@@ -37,7 +37,7 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 @Getter
 @NoArgsConstructor
 @Schema(
-        title = "Check Job status of a running sync connection"
+        title = "Check job status of a running sync connection"
 )
 @Plugin(
         examples = {
