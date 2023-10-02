@@ -20,7 +20,7 @@ class CheckStatusTest {
     private RunContextFactory runContextFactory;
 
     @Test
-    // @Disabled("Unable to spawn airbyte cluster with connection configured")
+    @Disabled("Unable to spawn airbyte cluster with connection configured")
     void run() throws Exception {
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
