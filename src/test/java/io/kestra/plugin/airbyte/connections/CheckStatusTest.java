@@ -20,7 +20,7 @@ class CheckStatusTest {
     private RunContextFactory runContextFactory;
 
     @Test
-    @Disabled("Unable to spawn airbyte cluster with connection configured")
+    // @Disabled("Unable to spawn airbyte cluster with connection configured")
     void run() throws Exception {
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
@@ -38,7 +38,7 @@ class CheckStatusTest {
                         .url("http://localhost:8001")
                         .username("airbyte")
                         .password("password")
-                        .jobId(runOutput.getJobId())
+                        .jobId(runOutput.getJobId().toString())
                         .maxDuration(Duration.ofMinutes(60))
                         .build();
 
