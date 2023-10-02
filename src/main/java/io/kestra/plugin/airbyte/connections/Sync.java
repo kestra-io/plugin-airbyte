@@ -110,7 +110,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                 .password(getPassword())
                 .pollFrequency(pollFrequency)
                 .maxDuration(maxDuration)
-                .jobId(jobId)
+                .jobId(jobId.toString())
                 .build();
 
         CheckStatus.Output runOutput = checkStatus.run(runContext);
