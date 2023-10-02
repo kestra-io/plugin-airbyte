@@ -60,7 +60,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             title = "The job id to check status for"
     )
     @PluginProperty(dynamic = true)
-    private Long jobId;
+    private String jobId;
 
     @Schema(
             title = "The max total wait duration"
@@ -87,6 +87,9 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         // Init with 1 as when triggering sync, an attempt is automatically generated
         AtomicInteger attemptCounter = new AtomicInteger(1);
 
+        // Check rendered jobId provided is a long
+        Long jobIdRendered = Long.parseLong(runContext.render(this.jobId));
+
         // wait for end
         JobInfo finalJobStatus = Await.until(
                 throwSupplier(() -> {
@@ -99,7 +102,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                                                     .of("/api/v1/jobs/get")
                                                     .toString()
                                     )
-                                    .body(Map.of("id", jobId)),
+                                    .body(Map.of("id", jobIdRendered)),
                             Argument.of(JobInfo.class)
                     );
 

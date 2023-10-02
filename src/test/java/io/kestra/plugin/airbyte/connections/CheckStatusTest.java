@@ -38,7 +38,7 @@ class CheckStatusTest {
                         .url("http://localhost:8001")
                         .username("airbyte")
                         .password("password")
-                        .jobId(runOutput.getJobId())
+                        .jobId(runOutput.getJobId().toString())
                         .maxDuration(Duration.ofMinutes(60))
                         .build();
 
