@@ -4,6 +4,7 @@ import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.RunContext;
+import io.kestra.plugin.airbyte.connections.SyncAlreadyRunningException;
 import io.micronaut.core.type.Argument;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.MediaType;
@@ -15,10 +16,7 @@ import io.micronaut.http.client.netty.DefaultHttpClient;
 import io.micronaut.http.client.netty.NettyHttpClientFactory;
 import io.micronaut.http.codec.MediaTypeCodecRegistry;
 import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
+import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 import java.net.MalformedURLException;
@@ -70,7 +68,7 @@ public abstract class AbstractAirbyteConnection extends Task {
         return client;
     }
 
-    protected <REQ, RES> HttpResponse<RES> request(RunContext runContext, MutableHttpRequest<REQ> request, Argument<RES> argument) throws HttpClientResponseException {
+    protected <REQ, RES> HttpResponse<RES> request(RunContext runContext, MutableHttpRequest<REQ> request, Argument<RES> argument) throws HttpClientResponseException, SyncAlreadyRunningException {
         try {
             request = request
                 .contentType(MediaType.APPLICATION_JSON);
@@ -87,6 +85,12 @@ public abstract class AbstractAirbyteConnection extends Task {
                 return client.toBlocking().exchange(request, argument);
             }
         } catch (HttpClientResponseException e) {
+            if (e.getStatus().getCode() == 409 && e.getResponse().getBody(String.class).isPresent()){
+                if (e.getResponse().getBody(String.class).orElse("null").contains("A sync is already running")) {
+                    throw new SyncAlreadyRunningException("A sync is already running");
+                }
+            }
+
             throw new HttpClientResponseException(
                 "Request failed '" + e.getStatus().getCode() + "' and body '" + e.getResponse().getBody(String.class).orElse("null") + "'",
                 e,
