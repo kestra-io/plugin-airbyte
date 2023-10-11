@@ -76,7 +76,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     Duration pollFrequency = Duration.ofSeconds(1);
 
     @Schema(
-            title = "Specify whether task should fail if sync is already running"
+            title = "Specify whether task should fail if a sync is already running"
     )
     @PluginProperty
     @Builder.Default
