@@ -102,6 +102,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                     Argument.of(JobInfo.class)
             );
         } catch(SyncAlreadyRunningException e) {
+            logger.info("This Airbyte sync is already running, Kestra cannot trigger a new execution.");
             if (this.failOnActiveSync) {
                 throw e;
             } else {
