@@ -101,7 +101,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                             .body(Map.of("connectionId", runContext.render(this.connectionId))),
                     Argument.of(JobInfo.class)
             );
-        }catch(SyncAlreadyRunningException e) {
+        } catch(SyncAlreadyRunningException e) {
             if (this.failOnActiveSync) {
                 throw e;
             } else {
