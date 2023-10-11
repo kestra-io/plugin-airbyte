@@ -75,23 +75,43 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Builder.Default
     Duration pollFrequency = Duration.ofSeconds(1);
 
+    @Schema(
+            title = "Specify whether task should fail if a sync is already running"
+    )
+    @PluginProperty
+    @Builder.Default
+    Boolean failOnActiveSync = true;
+
     @Override
     public Sync.Output run(RunContext runContext) throws Exception {
         Logger logger = runContext.logger();
+        HttpResponse<JobInfo> syncResponse;
 
         // create sync
-        HttpResponse<JobInfo> syncResponse = this.request(
-            runContext,
-            HttpRequest
-                .create(
-                    HttpMethod.POST,
-                    UriTemplate
-                        .of("/api/v1/connections/sync/")
-                        .toString()
-                )
-                .body(Map.of("connectionId", runContext.render(this.connectionId))),
-            Argument.of(JobInfo.class)
-        );
+        try {
+            syncResponse = this.request(
+                    runContext,
+                    HttpRequest
+                            .create(
+                                    HttpMethod.POST,
+                                    UriTemplate
+                                            .of("/api/v1/connections/sync/")
+                                            .toString()
+                            )
+                            .body(Map.of("connectionId", runContext.render(this.connectionId))),
+                    Argument.of(JobInfo.class)
+            );
+        } catch(SyncAlreadyRunningException e) {
+            logger.info("This Airbyte sync is already running, Kestra cannot trigger a new execution.");
+            if (this.failOnActiveSync) {
+                throw e;
+            } else {
+                return Output.builder()
+                        .alreadyRunning(true)
+                        .jobId(null)
+                        .build();
+            }
+        }
 
         JobInfo jobInfoRead = syncResponse.getBody().orElseThrow(() -> new IllegalStateException("Missing body on trigger"));
 
@@ -100,6 +120,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
         if (!this.wait) {
             return Output.builder()
+                .alreadyRunning(false)
                 .jobId(jobId)
                 .build();
         }
@@ -117,6 +138,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
         return Output.builder()
             .jobId(jobId)
+            .alreadyRunning(false)
             .build();
     }
 
@@ -127,5 +149,10 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             title = "The jobId created"
         )
         private final Long jobId;
+
+        @Schema(
+                title = "Whether a sync was already running or not"
+        )
+        private final Boolean alreadyRunning;
     }
 }
