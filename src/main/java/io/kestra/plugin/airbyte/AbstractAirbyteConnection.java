@@ -22,6 +22,7 @@ import lombok.experimental.SuperBuilder;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.Duration;
 import javax.validation.constraints.NotNull;
 
 @SuperBuilder
@@ -55,6 +56,13 @@ public abstract class AbstractAirbyteConnection extends Task {
     @PluginProperty(dynamic = true)
     String token;
 
+    @Schema(
+            title = "HTTP connection timeout"
+    )
+    @PluginProperty
+    @Builder.Default
+    Duration httpTimeout = Duration.ofSeconds(10);
+
     private static final NettyHttpClientFactory FACTORY = new NettyHttpClientFactory();
 
     protected HttpClient client(RunContext runContext) throws IllegalVariableEvaluationException, MalformedURLException, URISyntaxException {
@@ -62,6 +70,7 @@ public abstract class AbstractAirbyteConnection extends Task {
 
         var httpConfig = new DefaultHttpClientConfiguration();
         httpConfig.setMaxContentLength(Integer.MAX_VALUE);
+        httpConfig.setReadTimeout(httpTimeout);
         DefaultHttpClient client = (DefaultHttpClient) FACTORY.createClient(URI.create(runContext.render(this.url)).toURL(), httpConfig);
         client.setMediaTypeCodecRegistry(mediaTypeCodecRegistry);
 
