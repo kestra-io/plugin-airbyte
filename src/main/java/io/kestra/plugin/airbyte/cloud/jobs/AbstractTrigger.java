@@ -133,9 +133,18 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
             this.maxDuration
         );
 
-        runContext.metric(Counter.of("bytes_synced", finalJobResponse.bytesSynced));
-        runContext.metric(Counter.of("rows_synced", finalJobResponse.rowsSynced));
-        runContext.metric(Timer.of("duration", Duration.parse(finalJobResponse.duration)));
+        if (finalJobResponse.bytesSynced != null) {
+            runContext.metric(Counter.of("bytes_synced", finalJobResponse.bytesSynced));
+        }
+
+        if (finalJobResponse.rowsSynced != null) {
+            runContext.metric(Counter.of("rows_synced", finalJobResponse.rowsSynced));
+        }
+
+
+        if (finalJobResponse.duration != null) {
+            runContext.metric(Timer.of("duration", Duration.parse(finalJobResponse.duration)));
+        }
 
         return Output.builder()
             .job(Job.of(finalJobResponse))
