@@ -31,7 +31,7 @@ import java.time.Duration;
 @NoArgsConstructor
 public abstract class AbstractAirbyteCloud extends Task {
     @Schema(
-        title = "API key"
+        title = "API key."
     )
     @PluginProperty(dynamic = true)
     String token;

@@ -16,7 +16,7 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Sync a job"
+    title = "Sync a job."
 )
 @Plugin(
     examples = {
