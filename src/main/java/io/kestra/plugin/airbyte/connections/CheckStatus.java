@@ -37,33 +37,33 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 @Getter
 @NoArgsConstructor
 @Schema(
-        title = "Check job status of a running sync connection"
+    title = "Check job status of a running sync connection."
 )
 @Plugin(
-        examples = {
-                @Example(
-                        code = {
-                                "url: http://localhost:8080",
-                                "jobId: 970",
-                        }
-                )
-        }
+    examples = {
+        @Example(
+            code = {
+                "url: http://localhost:8080",
+                "jobId: 970",
+            }
+        )
+    }
 )
 public class CheckStatus extends AbstractAirbyteConnection implements RunnableTask<CheckStatus.Output> {
     private static final List<JobStatus> ENDED_JOB_STATUS = List.of(
-            JobStatus.FAILED,
-            JobStatus.CANCELLED,
-            JobStatus.SUCCEEDED
+        JobStatus.FAILED,
+        JobStatus.CANCELLED,
+        JobStatus.SUCCEEDED
     );
 
     @Schema(
-            title = "The job id to check status for"
+        title = "The job ID to check status for."
     )
     @PluginProperty(dynamic = true)
     private String jobId;
 
     @Schema(
-            title = "The max total wait duration"
+        title = "The maximum total wait duration."
     )
     @PluginProperty
     @Builder.Default
@@ -74,7 +74,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     private transient Map<Integer, Integer> loggedLine = new HashMap<>();
 
     @Schema(
-            title = "Specify how often the task should poll for the sync status"
+        title = "Specify how often the task should poll for the sync status."
     )
     @PluginProperty
     @Builder.Default
@@ -204,7 +204,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-                title = "The final job status"
+            title = "The final job status."
         )
         private final String finalJobStatus;
     }

@@ -35,7 +35,7 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Run a sync on a connection"
+    title = "Run a sync on a connection."
 )
 @Plugin(
     examples = {
@@ -61,28 +61,28 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     );
 
     @Schema(
-        title = "The connection id to sync"
+        title = "The connection ID to sync."
     )
     @PluginProperty(dynamic = true)
     private String connectionId;
 
     @Schema(
         title = "Wait for the end of the job.",
-        description = "Allowing to capture job status & logs"
+        description = "Allowing to capture job status & logs."
     )
     @PluginProperty
     @Builder.Default
     Boolean wait = true;
 
     @Schema(
-        title = "The max total wait duration"
+        title = "The maximum total wait duration."
     )
     @PluginProperty
     @Builder.Default
     Duration maxDuration = Duration.ofMinutes(60);
 
     @Schema(
-            title = "Specify frequency for state check API call"
+            title = "Specify frequency for state check API call."
     )
     @PluginProperty
     @Builder.Default
@@ -155,7 +155,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The job created"
+            title = "The job created."
         )
         private final Job job;
     }

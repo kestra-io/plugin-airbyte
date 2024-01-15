@@ -32,32 +32,32 @@ import javax.validation.constraints.NotNull;
 @NoArgsConstructor
 public abstract class AbstractAirbyteConnection extends Task {
     @Schema(
-        title = "The URL of your Airbyte instance"
+        title = "The URL of your Airbyte instance."
     )
     @PluginProperty(dynamic = true)
     @NotNull
     String url;
 
     @Schema(
-        title = "Basic auth username"
+        title = "Basic authentication username."
     )
     @PluginProperty(dynamic = true)
     String username;
 
     @Schema(
-        title = "Basic auth password"
+        title = "Basic authentication password."
     )
     @PluginProperty(dynamic = true)
     String password;
 
     @Schema(
-        title = "API key"
+        title = "API key."
     )
     @PluginProperty(dynamic = true)
     String token;
 
     @Schema(
-            title = "HTTP connection timeout"
+        title = "HTTP connection timeout."
     )
     @PluginProperty
     @Builder.Default

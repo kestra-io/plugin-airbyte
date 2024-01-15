@@ -28,7 +28,7 @@ import java.util.Map;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Run a sync on a connection"
+    title = "Run a sync on a connection."
 )
 @Plugin(
     examples = {
@@ -48,35 +48,35 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     );
 
     @Schema(
-        title = "The connection id to sync"
+        title = "The connection ID to sync."
     )
     @PluginProperty(dynamic = true)
     private String connectionId;
 
     @Schema(
         title = "Wait for the end of the job.",
-        description = "Allowing to capture job status & logs"
+        description = "Allowing to capture job status & logs."
     )
     @PluginProperty
     @Builder.Default
     private Boolean wait = true;
 
     @Schema(
-        title = "The max total wait duration"
+        title = "The maximum total wait duration."
     )
     @PluginProperty
     @Builder.Default
     Duration maxDuration = Duration.ofMinutes(60);
 
     @Schema(
-            title = "Specify frequency for sync attempt state check API call"
+        title = "Specify frequency for sync attempt state check API call."
     )
     @PluginProperty
     @Builder.Default
     Duration pollFrequency = Duration.ofSeconds(1);
 
     @Schema(
-            title = "Specify whether task should fail if a sync is already running"
+        title = "Specify whether task should fail if a sync is already running."
     )
     @PluginProperty
     @Builder.Default
@@ -146,12 +146,12 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The jobId created"
+            title = "The job ID created."
         )
         private final Long jobId;
 
         @Schema(
-                title = "Whether a sync was already running or not"
+            title = "Whether a sync was already running."
         )
         private final Boolean alreadyRunning;
     }
