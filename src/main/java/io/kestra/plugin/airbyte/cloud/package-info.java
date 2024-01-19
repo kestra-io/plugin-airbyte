@@ -1,6 +1,6 @@
 @PluginSubGroup(
     description = "This sub-group of plugins contains tasks for using Airbyte Cloud.\n" +
-    "Airbyte is an open-source data integration engine that helps you consolidate your data in your data warehouses, lakes and databases.",
+    "Airbyte is an open-source data integration engine that helps you consolidate your data in your data warehouses, data lakes and databases.",
     categories = PluginSubGroup.PluginCategory.TOOL
 )
 package io.kestra.plugin.airbyte.cloud;

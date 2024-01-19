@@ -54,8 +54,8 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     private String connectionId;
 
     @Schema(
-        title = "Wait for the end of the job.",
-        description = "Allowing to capture job status & logs."
+        title = "Wait for the job to end.",
+        description = "Allowing capture of job status & logs."
     )
     @PluginProperty
     @Builder.Default
