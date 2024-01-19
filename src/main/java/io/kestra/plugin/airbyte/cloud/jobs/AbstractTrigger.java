@@ -67,8 +67,8 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     private String connectionId;
 
     @Schema(
-        title = "Wait for the end of the job.",
-        description = "Allowing to capture job status & logs."
+        title = "Wait for the job to end.",
+        description = "Allowing capture of job status & logs."
     )
     @PluginProperty
     @Builder.Default
@@ -82,7 +82,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     Duration maxDuration = Duration.ofMinutes(60);
 
     @Schema(
-            title = "Specify frequency for state check API call."
+        title = "Specify frequency for state check API call."
     )
     @PluginProperty
     @Builder.Default
