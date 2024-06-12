@@ -16,7 +16,6 @@ import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 import java.io.IOException;
-import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -48,9 +47,7 @@ public abstract class AbstractAirbyteCloud extends Task {
     private String password;
 
     protected Airbyte client(RunContext runContext) throws Exception {
-        RetryUtils.Instance<HttpResponse<byte[]>, Exception> retry = runContext
-            .getApplicationContext()
-            .getBean(RetryUtils.class)
+        RetryUtils.Instance<HttpResponse<byte[]>, Exception> retry = new RetryUtils()
             .of(
                 Exponential.builder()
                     .delayFactor(2.0)
