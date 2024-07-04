@@ -40,6 +40,8 @@ dependencies {
     // Micronaut
     compileOnly platform("io.micronaut.platform:micronaut-platform:$micronautVersion")
     compileOnly "io.micronaut:micronaut-http-client"
+    compileOnly "io.micronaut.reactor:micronaut-reactor"
+    compileOnly "io.micronaut:micronaut-jackson-databind"
 
     compileOnly group: 'com.fasterxml.jackson.module', name: 'jackson-module-parameter-names', version: jacksonVersion
     compileOnly group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-guava', version: jacksonVersion
