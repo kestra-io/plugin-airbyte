@@ -24,10 +24,17 @@ import lombok.experimental.SuperBuilder;
 @Plugin(
     examples = {
         @Example(
-            code = {
-                "token: <token>",
-                "connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd",
-            }
+            full = true,
+            code = """
+                id: airbyte_reset
+                namespace: company.team
+
+                tasks:
+                  - id: reset
+                    type: io.kestra.plugin.airbyte.cloud.jobs.Reset
+                    token: <token>
+                    connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd
+                """
         )
     },
     metrics = {

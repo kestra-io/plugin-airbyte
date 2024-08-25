@@ -42,10 +42,17 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 @Plugin(
     examples = {
         @Example(
-            code = {
-                "url: http://localhost:8080",
-                "jobId: 970",
-            }
+            full = true,
+            code = """
+                id: airbyte_check_status
+                namespace: company.team
+
+                tasks:
+                  - id: "check_status"
+                    type: "io.kestra.plugin.airbyte.connections.CheckStatus"
+                    url: http://localhost:8080
+                    jobId: 970
+                """
         )
     }
 )
