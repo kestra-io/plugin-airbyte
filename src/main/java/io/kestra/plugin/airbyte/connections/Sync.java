@@ -33,10 +33,17 @@ import java.util.Map;
 @Plugin(
     examples = {
         @Example(
-            code = {
-                "url: http://localhost:8080",
-                "connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd",
-            }
+            full = true,
+            code = """
+                id: airbyte_sync
+                namespace: company.team
+
+                tasks:
+                  - id: sync
+                    type: io.kestra.plugin.airbyte.connections.Sync
+                    url: http://localhost:8080
+                    connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd
+                """
         )
     }
 )
