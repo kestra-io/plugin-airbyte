@@ -25,6 +25,7 @@ import lombok.experimental.SuperBuilder;
             code = """
                 id: airbyte_sync
                 namespace: company.team
+
                 tasks:
                   - id: sync
                     type: io.kestra.plugin.airbyte.cloud.jobs.Sync
