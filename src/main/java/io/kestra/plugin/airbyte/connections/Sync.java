@@ -3,6 +3,7 @@ package io.kestra.plugin.airbyte.connections;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
@@ -57,37 +58,32 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Schema(
         title = "The connection ID to sync."
     )
-    @PluginProperty(dynamic = true)
-    private String connectionId;
+    private Property<String> connectionId;
 
     @Schema(
         title = "Wait for the job to end.",
         description = "Allowing capture of job status & logs."
     )
-    @PluginProperty
     @Builder.Default
-    private Boolean wait = true;
+    private Property<Boolean> wait = Property.of(true);
 
     @Schema(
         title = "The maximum total wait duration."
     )
-    @PluginProperty
     @Builder.Default
-    Duration maxDuration = Duration.ofMinutes(60);
+    Property<Duration> maxDuration = Property.of(Duration.ofMinutes(60));
 
     @Schema(
         title = "Specify frequency for sync attempt state check API call."
     )
-    @PluginProperty
     @Builder.Default
-    Duration pollFrequency = Duration.ofSeconds(1);
+    Property<Duration> pollFrequency = Property.of(Duration.ofSeconds(1));
 
     @Schema(
         title = "Specify whether task should fail if a sync is already running."
     )
-    @PluginProperty
     @Builder.Default
-    Boolean failOnActiveSync = true;
+    Property<Boolean> failOnActiveSync = Property.of(true);
 
     @Override
     public Sync.Output run(RunContext runContext) throws Exception {
@@ -110,7 +106,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             );
         } catch(SyncAlreadyRunningException e) {
             logger.info("This Airbyte sync is already running, Kestra cannot trigger a new execution.");
-            if (this.failOnActiveSync) {
+            if (runContext.render(this.failOnActiveSync).as(Boolean.class).orElseThrow()) {
                 throw e;
             } else {
                 return Output.builder()
@@ -125,7 +121,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         logger.info("Job status {} with response: {}", syncResponse.getStatus(), jobInfoRead);
         Long jobId = jobInfoRead.getJob().getId();
 
-        if (!this.wait) {
+        if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
             return Output.builder()
                 .alreadyRunning(false)
                 .jobId(jobId)
@@ -138,7 +134,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                 .password(getPassword())
                 .pollFrequency(pollFrequency)
                 .maxDuration(maxDuration)
-                .jobId(jobId.toString())
+                .jobId(Property.of(jobId.toString()))
                 .build();
 
         CheckStatus.Output runOutput = checkStatus.run(runContext);

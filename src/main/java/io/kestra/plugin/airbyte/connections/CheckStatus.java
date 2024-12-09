@@ -4,6 +4,7 @@ import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.executions.metrics.Counter;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.utils.Await;
@@ -66,15 +67,13 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     @Schema(
         title = "The job ID to check status for."
     )
-    @PluginProperty(dynamic = true)
-    private String jobId;
+    private Property<String> jobId;
 
     @Schema(
         title = "The maximum total wait duration."
     )
-    @PluginProperty
     @Builder.Default
-    Duration maxDuration = Duration.ofMinutes(60);
+    Property<Duration> maxDuration = Property.of(Duration.ofMinutes(60));
 
     @Builder.Default
     @Getter(AccessLevel.NONE)
@@ -83,9 +82,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     @Schema(
         title = "Specify how often the task should poll for the sync status."
     )
-    @PluginProperty
     @Builder.Default
-    Duration pollFrequency = Duration.ofSeconds(1);
+    Property<Duration> pollFrequency = Property.of(Duration.ofSeconds(1));
 
     @Override
     public CheckStatus.Output run(RunContext runContext) throws Exception {
@@ -95,7 +93,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         AtomicInteger attemptCounter = new AtomicInteger(1);
 
         // Check rendered jobId provided is a long
-        Long jobIdRendered = Long.parseLong(runContext.render(this.jobId));
+        Long jobIdRendered = Long.parseLong(runContext.render(this.jobId).as(String.class).orElse(null));
 
         // wait for end
         JobInfo finalJobStatus = Await.until(
@@ -130,8 +128,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                     }
                     return null;
                 }),
-                this.pollFrequency,
-                this.maxDuration
+                runContext.render(this.pollFrequency).as(Duration.class).orElseThrow(),
+                runContext.render(this.maxDuration).as(Duration.class).orElseThrow()
         );
 
         // failure message

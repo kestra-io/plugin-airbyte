@@ -1,6 +1,7 @@
 package io.kestra.plugin.airbyte.connections;
 
 import com.google.common.collect.ImmutableMap;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.junit.annotations.KestraTest;
@@ -22,23 +23,23 @@ class SyncAlreadyRunningTest {
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
         Sync task = Sync.builder()
-            .url("http://localhost:8000")
-            .username("airbyte")
-            .password("password")
-            .connectionId("6f8804bf-9327-4634-be47-f2170c5346bd")
-            .failOnActiveSync(false)
-            .wait(false)
+            .url(Property.of("http://localhost:8000"))
+            .username(Property.of("airbyte"))
+            .password(Property.of("password"))
+            .connectionId(Property.of("6f8804bf-9327-4634-be47-f2170c5346bd"))
+            .failOnActiveSync(Property.of(false))
+            .wait(Property.of(false))
             .build();
 
         Sync.Output runOutput = task.run(runContext);
 
         Sync task2 = Sync.builder()
-                .url("http://localhost:8000")
-                .username("airbyte")
-                .password("password")
-                .connectionId("6f8804bf-9327-4634-be47-f2170c5346bd")
-                .failOnActiveSync(false)
-                .wait(false)
+                .url(Property.of("http://localhost:8000"))
+                .username(Property.of("airbyte"))
+                .password(Property.of("password"))
+                .connectionId(Property.of("6f8804bf-9327-4634-be47-f2170c5346bd"))
+                .failOnActiveSync(Property.of(false))
+                .wait(Property.of(false))
                 .build();
 
         Sync.Output runOutput2 = task.run(runContext);
