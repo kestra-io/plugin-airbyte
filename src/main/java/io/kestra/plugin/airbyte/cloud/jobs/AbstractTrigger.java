@@ -14,6 +14,7 @@ import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.executions.metrics.Timer;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.utils.Await;
@@ -63,30 +64,26 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     @Schema(
         title = "The connection ID to sync."
     )
-    @PluginProperty(dynamic = true)
-    private String connectionId;
+    private Property<String> connectionId;
 
     @Schema(
         title = "Wait for the job to end.",
         description = "Allowing capture of job status & logs."
     )
-    @PluginProperty
     @Builder.Default
-    Boolean wait = true;
+    Property<Boolean> wait = Property.of(true);
 
     @Schema(
         title = "The maximum total wait duration."
     )
-    @PluginProperty
     @Builder.Default
-    Duration maxDuration = Duration.ofMinutes(60);
+    Property<Duration> maxDuration = Property.of(Duration.ofMinutes(60));
 
     @Schema(
         title = "Specify frequency for state check API call."
     )
-    @PluginProperty
     @Builder.Default
-    Duration pollFrequency = Duration.ofSeconds(1);
+    Property<Duration> pollFrequency = Property.of(Duration.ofSeconds(1));
 
     abstract protected JobTypeEnum syncType();
 
@@ -97,7 +94,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         Airbyte client = this.client(runContext);
 
         JobCreateRequest createJobRequest = new JobCreateRequest(
-            runContext.render(this.connectionId),
+            runContext.render(this.connectionId).as(String.class).orElse(null),
             this.syncType()
         );
 
@@ -108,7 +105,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
         logger.info("Job id {} with response: {}", createJobResponse.jobResponse.jobId, createJob);
 
-        if (!this.wait) {
+        if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
             return AbstractTrigger.Output.builder()
                 .job(createJob)
                 .build();
@@ -129,8 +126,8 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
                 return null;
             }),
-            this.pollFrequency,
-            this.maxDuration
+            runContext.render(this.pollFrequency).as(Duration.class).orElseThrow(),
+            runContext.render(this.maxDuration).as(Duration.class).orElseThrow()
         );
 
         if (finalJobResponse.bytesSynced != null) {

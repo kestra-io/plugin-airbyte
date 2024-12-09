@@ -2,6 +2,7 @@ package io.kestra.plugin.airbyte;
 
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.DefaultRunContext;
 import io.kestra.core.runners.RunContext;
@@ -35,34 +36,29 @@ public abstract class AbstractAirbyteConnection extends Task {
     @Schema(
         title = "The URL of your Airbyte instance."
     )
-    @PluginProperty(dynamic = true)
     @NotNull
-    String url;
+    Property<String> url;
 
     @Schema(
         title = "Basic authentication username."
     )
-    @PluginProperty(dynamic = true)
-    String username;
+    Property<String> username;
 
     @Schema(
         title = "Basic authentication password."
     )
-    @PluginProperty(dynamic = true)
-    String password;
+    Property<String> password;
 
     @Schema(
         title = "API key."
     )
-    @PluginProperty(dynamic = true)
-    String token;
+    Property<String> token;
 
     @Schema(
         title = "HTTP connection timeout."
     )
-    @PluginProperty
     @Builder.Default
-    Duration httpTimeout = Duration.ofSeconds(10);
+    Property<Duration> httpTimeout = Property.of(Duration.ofSeconds(10));
 
     private static final NettyHttpClientFactory FACTORY = new NettyHttpClientFactory();
 
@@ -71,8 +67,8 @@ public abstract class AbstractAirbyteConnection extends Task {
 
         var httpConfig = new DefaultHttpClientConfiguration();
         httpConfig.setMaxContentLength(Integer.MAX_VALUE);
-        httpConfig.setReadTimeout(httpTimeout);
-        DefaultHttpClient client = (DefaultHttpClient) FACTORY.createClient(URI.create(runContext.render(this.url)).toURL(), httpConfig);
+        httpConfig.setReadTimeout(runContext.render(httpTimeout).as(Duration.class).orElseThrow());
+        DefaultHttpClient client = (DefaultHttpClient) FACTORY.createClient(URI.create(runContext.render(this.url).as(String.class).orElseThrow()).toURL(), httpConfig);
         client.setMediaTypeCodecRegistry(mediaTypeCodecRegistry);
 
         return client;
@@ -84,11 +80,12 @@ public abstract class AbstractAirbyteConnection extends Task {
                 .contentType(MediaType.APPLICATION_JSON);
 
             if (this.token != null) {
-                request = request.bearerAuth(runContext.render(this.token));
+                request = request.bearerAuth(runContext.render(this.token).as(String.class).orElseThrow());
             }
 
             if (this.username != null && this.password != null) {
-                request = request.basicAuth(runContext.render(this.username), runContext.render(this.password));
+                request = request.basicAuth(runContext.render(this.username).as(String.class).orElseThrow(),
+                    runContext.render(this.password).as(String.class).orElseThrow());
             }
 
             try (HttpClient client = this.client(runContext)) {

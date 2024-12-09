@@ -1,6 +1,7 @@
 package io.kestra.plugin.airbyte.connections;
 
 import com.google.common.collect.ImmutableMap;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.junit.annotations.KestraTest;
@@ -25,21 +26,21 @@ class CheckStatusTest {
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
         Sync task = Sync.builder()
-                .url("http://localhost:8001")
-                .username("airbyte")
-                .password("password")
-                .wait(false)
-                .connectionId("571304a1-498f-4382-b2ff-e791291b6363")
+                .url(Property.of("http://localhost:8001"))
+                .username(Property.of("airbyte"))
+                .password(Property.of("password"))
+                .wait(Property.of(false))
+                .connectionId(Property.of("571304a1-498f-4382-b2ff-e791291b6363"))
                 .build();
 
         Sync.Output runOutput = task.run(runContext);
 
         CheckStatus checkStatus = CheckStatus.builder()
-                        .url("http://localhost:8001")
-                        .username("airbyte")
-                        .password("password")
-                        .jobId(runOutput.getJobId().toString())
-                        .maxDuration(Duration.ofMinutes(60))
+                        .url(Property.of("http://localhost:8001"))
+                        .username(Property.of("airbyte"))
+                        .password(Property.of("password"))
+                        .jobId(Property.of(runOutput.getJobId().toString()))
+                        .maxDuration(Property.of(Duration.ofMinutes(60)))
                         .build();
 
         CheckStatus.Output checkStatusOutput = checkStatus.run(runContext);

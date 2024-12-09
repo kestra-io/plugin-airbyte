@@ -1,6 +1,7 @@
 package io.kestra.plugin.airbyte.connections;
 
 import com.google.common.collect.ImmutableMap;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.plugin.airbyte.connections.Sync;
@@ -24,10 +25,10 @@ class SyncTest {
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
         Sync task = Sync.builder()
-            .url("http://localhost:8000")
-            .username("airbyte")
-            .password("password")
-            .connectionId("3ef5d9a0-4f16-42db-9ab5-8dd3c4822391")
+            .url(Property.of("http://localhost:8000"))
+            .username(Property.of("airbyte"))
+            .password(Property.of("password"))
+            .connectionId(Property.of("3ef5d9a0-4f16-42db-9ab5-8dd3c4822391"))
             .build();
 
         Sync.Output runOutput = task.run(runContext);
