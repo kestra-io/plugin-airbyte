@@ -4,6 +4,7 @@ import com.airbyte.api.Airbyte;
 import com.airbyte.api.models.shared.SchemeBasicAuth;
 import com.airbyte.api.models.shared.Security;
 import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.models.tasks.retrys.Exponential;
 import io.kestra.core.runners.RunContext;
@@ -31,20 +32,17 @@ public abstract class AbstractAirbyteCloud extends Task {
     @Schema(
         title = "API key."
     )
-    @PluginProperty(dynamic = true)
-    String token;
+    Property<String> token;
 
     @Schema(
         title = "BasicAuth authentication username."
     )
-    @PluginProperty(dynamic = true)
-    private String username;
+    private Property<String> username;
 
     @Schema(
         title = "BasicAuth authentication password."
     )
-    @PluginProperty(dynamic = true)
-    private String password;
+    private Property<String> password;
 
     protected Airbyte client(RunContext runContext) throws Exception {
         RetryUtils.Instance<HttpResponse<byte[]>, Exception> retry = new RetryUtils()
@@ -61,11 +59,12 @@ public abstract class AbstractAirbyteCloud extends Task {
 
         Security security = new Security();
         if (this.token != null) {
-            security.withBearerAuth(runContext.render(this.token));
+            security.withBearerAuth(runContext.render(this.token).as(String.class).orElseThrow());
         }
 
         if (this.token != null) {
-            security.withBasicAuth(new SchemeBasicAuth(runContext.render(this.username), runContext.render(this.password)));
+            security.withBasicAuth(new SchemeBasicAuth(runContext.render(this.username).as(String.class).orElseThrow(),
+                runContext.render(this.password).as(String.class).orElseThrow()));
         }
 
         return Airbyte.builder()
