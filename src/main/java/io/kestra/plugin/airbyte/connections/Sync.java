@@ -92,18 +92,19 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
         // create sync
         try {
-            syncResponse = this.request(
-                    runContext,
-                    HttpRequest
-                            .create(
-                                    HttpMethod.POST,
-                                    UriTemplate
-                                            .of("/api/v1/connections/sync/")
-                                            .toString()
-                            )
-                            .body(Map.of("connectionId", runContext.render(this.connectionId))),
-                    Argument.of(JobInfo.class)
-            );
+            var httpsRequest = HttpRequest
+                .create(
+                    HttpMethod.POST,
+                    UriTemplate
+                        .of("/api/v1/connections/sync/")
+                        .toString()
+                );
+
+            var renderedConnectionId = runContext.render(this.connectionId).as(String.class);
+            if (renderedConnectionId.isPresent()) {
+                httpsRequest = httpsRequest.body(Map.of("connectionId", renderedConnectionId.get()));
+            }
+            syncResponse = this.request(runContext, httpsRequest, Argument.of(JobInfo.class));
         } catch(SyncAlreadyRunningException e) {
             logger.info("This Airbyte sync is already running, Kestra cannot trigger a new execution.");
             if (runContext.render(this.failOnActiveSync).as(Boolean.class).orElseThrow()) {
