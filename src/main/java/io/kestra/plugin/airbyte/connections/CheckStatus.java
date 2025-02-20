@@ -2,7 +2,6 @@ package io.kestra.plugin.airbyte.connections;
 
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
-import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
@@ -13,21 +12,16 @@ import io.kestra.plugin.airbyte.models.Attempt;
 import io.kestra.plugin.airbyte.models.AttemptInfo;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobStatus;
-import io.micronaut.core.type.Argument;
-import io.micronaut.http.HttpMethod;
-import io.micronaut.http.HttpRequest;
-import io.micronaut.http.HttpResponse;
-import io.micronaut.http.uri.UriTemplate;
+import io.kestra.core.http.HttpRequest;
+import io.kestra.core.http.HttpResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 import org.slf4j.Logger;
 
+import java.net.URI;
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.kestra.core.utils.Rethrow.throwSupplier;
@@ -64,14 +58,10 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         JobStatus.SUCCEEDED
     );
 
-    @Schema(
-        title = "The job ID to check status for."
-    )
+    @Schema(title = "The job ID to check status for.")
     private Property<String> jobId;
 
-    @Schema(
-        title = "The maximum total wait duration."
-    )
+    @Schema(title = "The maximum total wait duration.")
     @Builder.Default
     Property<Duration> maxDuration = Property.of(Duration.ofMinutes(60));
 
@@ -79,9 +69,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     @Getter(AccessLevel.NONE)
     private transient Map<Integer, Integer> loggedLine = new HashMap<>();
 
-    @Schema(
-        title = "Specify how often the task should poll for the sync status."
-    )
+    @Schema(title = "Specify how often the task should poll for the sync status.")
     @Builder.Default
     Property<Duration> pollFrequency = Property.of(Duration.ofSeconds(1));
 
@@ -97,23 +85,19 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
         // wait for end
         JobInfo finalJobStatus = Await.until(
-                throwSupplier(() -> {
-                    HttpResponse<JobInfo> fetchJobRequest = this.request(
-                            runContext,
-                            HttpRequest
-                                    .create(
-                                            HttpMethod.POST,
-                                            UriTemplate
-                                                    .of("/api/v1/jobs/get")
-                                                    .toString()
-                                    )
-                                    .body(Map.of("id", jobIdRendered)),
-                            Argument.of(JobInfo.class)
-                    );
+            throwSupplier(() -> {
+                HttpRequest.HttpRequestBuilder fetchJobRequest = HttpRequest.builder()
+                    .uri(URI.create(getUrl()+ "/api/v1/connections/sync/"))
+                    .method("POST")
+                    .body(HttpRequest.JsonRequestBody.builder()
+                        .content(Map.of("id", jobIdRendered))
+                        .build());
 
-                    if (fetchJobRequest.getBody().isPresent()) {
-                        JobInfo jobStatus = fetchJobRequest.getBody().get();
-                        sendLog(logger, jobStatus);
+                HttpResponse<JobInfo> response = this.request(runContext, fetchJobRequest, JobInfo.class);
+
+                if (response.getBody() != null) {
+                    JobInfo jobStatus = response.getBody();
+                    sendLog(logger, jobStatus);
 
                         // ended
                         if (ENDED_JOB_STATUS.contains(jobStatus.getJob().getStatus())) {
@@ -134,11 +118,11 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
         // failure message
         finalJobStatus.getAttempts()
-                .stream()
-                .map(AttemptInfo::getAttempt)
-                .map(Attempt::getFailureSummary)
-                .filter(Objects::nonNull)
-                .forEach(attemptFailureSummary -> logger.warn("Failure with reason {}", attemptFailureSummary));
+            .stream()
+            .map(AttemptInfo::getAttempt)
+            .map(Attempt::getFailureSummary)
+            .filter(Objects::nonNull)
+            .forEach(attemptFailureSummary -> logger.warn("Failure with reason {}", attemptFailureSummary));
 
         // handle failed attempt
         if (!finalJobStatus.getJob().getStatus().equals(JobStatus.SUCCEEDED)) {
@@ -152,27 +136,24 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         runContext.metric(Counter.of("attempts.count", finalJobStatus.getAttempts().size()));
 
         finalJobStatus.getAttempts()
-                .stream()
-                .map(AttemptInfo::getAttempt)
-                .filter(attempt -> attempt.getStreamStats() != null)
-                .flatMap(attempt -> attempt.getStreamStats().stream())
-                .forEach(o -> {
-                    if (o.getStats().getRecordsCommitted() != null) {
-                        runContext.metric(Counter.of("records.commited", o.getStats().getRecordsCommitted(), "stream", o.getStreamName()));
-                    }
-
-                    if (o.getStats().getRecordsEmitted() != null) {
-                        runContext.metric(Counter.of("records.emitted", o.getStats().getRecordsEmitted(), "stream", o.getStreamName()));
-                    }
-
-                    if (o.getStats().getBytesEmitted() != null) {
-                        runContext.metric(Counter.of("bytes.emitted", o.getStats().getBytesEmitted(), "stream", o.getStreamName()));
-                    }
-
-                    if (o.getStats().getStateMessagesEmitted() != null) {
-                        runContext.metric(Counter.of("state.emitted", o.getStats().getStateMessagesEmitted(), "stream", o.getStreamName()));
-                    }
-                });
+            .stream()
+            .map(AttemptInfo::getAttempt)
+            .filter(attempt -> attempt.getStreamStats() != null)
+            .flatMap(attempt -> attempt.getStreamStats().stream())
+            .forEach(o -> {
+                if (o.getStats().getRecordsCommitted() != null) {
+                    runContext.metric(Counter.of("records.committed", o.getStats().getRecordsCommitted(), "stream", o.getStreamName()));
+                }
+                if (o.getStats().getRecordsEmitted() != null) {
+                    runContext.metric(Counter.of("records.emitted", o.getStats().getRecordsEmitted(), "stream", o.getStreamName()));
+                }
+                if (o.getStats().getBytesEmitted() != null) {
+                    runContext.metric(Counter.of("bytes.emitted", o.getStats().getBytesEmitted(), "stream", o.getStreamName()));
+                }
+                if (o.getStats().getStateMessagesEmitted() != null) {
+                    runContext.metric(Counter.of("state.emitted", o.getStats().getStateMessagesEmitted(), "stream", o.getStreamName()));
+                }
+            });
 
         return Output.builder()
                 .finalJobStatus(finalJobStatus.getJob().getStatus().toString())
@@ -208,9 +189,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     @Builder
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
-        @Schema(
-            title = "The final job status."
-        )
+        @Schema(title = "The final job status.")
         private final String finalJobStatus;
     }
 }
