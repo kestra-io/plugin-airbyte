@@ -1,31 +1,24 @@
 package io.kestra.plugin.airbyte;
 
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
-import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.http.HttpRequest;
+import io.kestra.core.http.HttpResponse;
+import io.kestra.core.http.client.HttpClient;
+import io.kestra.core.http.client.HttpClientException;
+import io.kestra.core.http.client.HttpClientResponseException;
+import io.kestra.core.http.client.configurations.HttpConfiguration;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Task;
-import io.kestra.core.runners.DefaultRunContext;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.connections.SyncAlreadyRunningException;
-import io.micronaut.core.type.Argument;
-import io.micronaut.http.HttpResponse;
 import io.micronaut.http.MediaType;
-import io.micronaut.http.MutableHttpRequest;
-import io.micronaut.http.client.DefaultHttpClientConfiguration;
-import io.micronaut.http.client.HttpClient;
-import io.micronaut.http.client.exceptions.HttpClientResponseException;
-import io.micronaut.http.client.netty.DefaultHttpClient;
-import io.micronaut.http.client.netty.NettyHttpClientFactory;
-import io.micronaut.http.codec.MediaTypeCodecRegistry;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-
-import java.net.MalformedURLException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.time.Duration;
 import jakarta.validation.constraints.NotNull;
+import java.io.IOException;
+import java.time.Duration;
+import java.util.Objects;
 
 @SuperBuilder
 @ToString
@@ -33,78 +26,54 @@ import jakarta.validation.constraints.NotNull;
 @Getter
 @NoArgsConstructor
 public abstract class AbstractAirbyteConnection extends Task {
-    @Schema(
-        title = "The URL of your Airbyte instance."
-    )
+    @Schema(title = "The URL of your Airbyte instance.")
     @NotNull
-    Property<String> url;
+    private Property<String> url;
 
-    @Schema(
-        title = "Basic authentication username."
-    )
-    Property<String> username;
+    @Schema(title = "Basic authentication username.")
+    private Property<String> username;
 
-    @Schema(
-        title = "Basic authentication password."
-    )
-    Property<String> password;
+    @Schema(title = "Basic authentication password.")
+    private Property<String> password;
 
-    @Schema(
-        title = "API key."
-    )
-    Property<String> token;
+    @Schema(title = "API key.")
+    private Property<String> token;
 
-    @Schema(
-        title = "HTTP connection timeout."
-    )
+    @Schema(title = "HTTP connection timeout.")
     @Builder.Default
-    Property<Duration> httpTimeout = Property.of(Duration.ofSeconds(10));
+    private Property<Duration> httpTimeout = Property.of(Duration.ofSeconds(10));
 
-    private static final NettyHttpClientFactory FACTORY = new NettyHttpClientFactory();
+    @Schema(title = "The HTTP client configuration.")
+    protected HttpConfiguration options;
 
-    protected HttpClient client(RunContext runContext) throws IllegalVariableEvaluationException, MalformedURLException, URISyntaxException {
-        MediaTypeCodecRegistry mediaTypeCodecRegistry = ((DefaultRunContext)runContext).getApplicationContext().getBean(MediaTypeCodecRegistry.class);
+    protected <REQ, RES> HttpResponse<RES> request(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder, Class<RES> responseType)
+        throws HttpClientException, IllegalVariableEvaluationException, SyncAlreadyRunningException {
 
-        var httpConfig = new DefaultHttpClientConfiguration();
-        httpConfig.setMaxContentLength(Integer.MAX_VALUE);
-        httpConfig.setReadTimeout(runContext.render(httpTimeout).as(Duration.class).orElseThrow());
-        DefaultHttpClient client = (DefaultHttpClient) FACTORY.createClient(URI.create(runContext.render(this.url).as(String.class).orElseThrow()).toURL(), httpConfig);
-        client.setMediaTypeCodecRegistry(mediaTypeCodecRegistry);
+        requestBuilder.addHeader("Content-Type", MediaType.APPLICATION_JSON);
 
-        return client;
-    }
+        if (this.token != null) {
+            requestBuilder.addHeader("Authorization", "Bearer " + runContext.render(this.token).as(String.class).orElseThrow());
+        }
 
-    protected <REQ, RES> HttpResponse<RES> request(RunContext runContext, MutableHttpRequest<REQ> request, Argument<RES> argument) throws HttpClientResponseException, SyncAlreadyRunningException {
-        try {
-            request = request
-                .contentType(MediaType.APPLICATION_JSON);
-
-            if (this.token != null) {
-                request = request.bearerAuth(runContext.render(this.token).as(String.class).orElseThrow());
-            }
-
-            if (this.username != null && this.password != null) {
-                request = request.basicAuth(runContext.render(this.username).as(String.class).orElseThrow(),
-                    runContext.render(this.password).as(String.class).orElseThrow());
-            }
-
-            try (HttpClient client = this.client(runContext)) {
-                return client.toBlocking().exchange(request, argument);
-            }
-        } catch (HttpClientResponseException e) {
-            if (e.getStatus().getCode() == 409 && e.getResponse().getBody(String.class).isPresent()){
-                if (e.getResponse().getBody(String.class).orElse("null").contains("A sync is already running")) {
-                    throw new SyncAlreadyRunningException("A sync is already running");
-                }
-            }
-
-            throw new HttpClientResponseException(
-                "Request failed '" + e.getStatus().getCode() + "' and body '" + e.getResponse().getBody(String.class).orElse("null") + "'",
-                e,
-                e.getResponse()
+        if (this.username != null && this.password != null) {
+            String basicAuthValue = "Basic " + java.util.Base64.getEncoder().encodeToString(
+                (runContext.render(this.username).as(String.class).orElseThrow() + ":" +
+                    runContext.render(this.password).as(String.class).orElseThrow()).getBytes()
             );
-        } catch (IllegalVariableEvaluationException | MalformedURLException | URISyntaxException e) {
-            throw new RuntimeException(e);
+            requestBuilder.addHeader("Authorization", basicAuthValue);
+        }
+
+        var request= requestBuilder.build();
+
+        try (HttpClient client = new HttpClient(runContext, options)) {
+            return client.request(request, responseType);
+        } catch (IOException e) {
+            throw new RuntimeException("HTTP request failed", e);
+        } catch (HttpClientResponseException e) {
+            if (Objects.requireNonNull(e.getResponse()).getStatus().getCode() == 409) {
+                throw new SyncAlreadyRunningException("A sync is already running");
+            }
+            throw new RuntimeException("Request failed with status: " + e.getResponse().getStatus().getCode(), e);
         }
     }
 }
