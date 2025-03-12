@@ -4,13 +4,15 @@ import lombok.Value;
 import lombok.experimental.SuperBuilder;
 import lombok.extern.jackson.Jacksonized;
 
-import java.util.List;
+import java.util.Map;
 
 @Value
 @Jacksonized
 @SuperBuilder
-public class Log {
-    List<String> logLines;
-    List<Event> events;
-    String version;
+public class Event {
+    Long timestamp;
+    String message;
+    String level;
+    String logSource;
+    Map<String, Object> caller;
 }

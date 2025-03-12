@@ -7,17 +7,21 @@ import io.kestra.core.http.client.HttpClient;
 import io.kestra.core.http.client.HttpClientException;
 import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.http.client.configurations.HttpConfiguration;
+import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.connections.SyncAlreadyRunningException;
+import io.micronaut.http.HttpHeaders;
 import io.micronaut.http.MediaType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 import jakarta.validation.constraints.NotNull;
 import java.io.IOException;
+import java.net.URI;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Objects;
 
 @SuperBuilder
@@ -46,10 +50,16 @@ public abstract class AbstractAirbyteConnection extends Task {
     @Schema(title = "The HTTP client configuration.")
     protected HttpConfiguration options;
 
+    @Schema(title = "Application credentials.", description = "Applications allow you to generate tokens to access the Airbyte API.")
+    @PluginProperty
+    private ApplicationCredentials applicationCredentials;
+
     protected <REQ, RES> HttpResponse<RES> request(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder, Class<RES> responseType)
         throws HttpClientException, IllegalVariableEvaluationException, SyncAlreadyRunningException {
 
         requestBuilder.addHeader("Content-Type", MediaType.APPLICATION_JSON);
+
+        retrieveApplicationCredentialsToken(runContext);
 
         if (this.token != null) {
             requestBuilder.addHeader("Authorization", "Bearer " + runContext.render(this.token).as(String.class).orElseThrow());
@@ -75,5 +85,51 @@ public abstract class AbstractAirbyteConnection extends Task {
             }
             throw new RuntimeException("Request failed with status: " + e.getResponse().getStatus().getCode(), e);
         }
+    }
+
+    private void retrieveApplicationCredentialsToken(RunContext runContext) throws IllegalVariableEvaluationException {
+        if (applicationCredentials != null) {
+            final String clientId = runContext.render(this.applicationCredentials.getClientId()).as(String.class).orElseThrow();
+            final String clientSecret = runContext.render(this.applicationCredentials.getClientSecret()).as(String.class).orElseThrow();
+
+            HttpRequest.HttpRequestBuilder applicationToeknRequestBuilder = HttpRequest.builder()
+                .uri(URI.create(getUrl()+ "/api/v1/applications/token"))
+                .method("POST")
+                .body(HttpRequest.JsonRequestBody.builder()
+                    .content(Map.of(
+                        "client_id", clientId,
+                        "client_secret", clientSecret,
+                        "grant-type", "client_credentials"
+                    ))
+                    .build()
+                );
+            applicationToeknRequestBuilder.addHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON);
+            applicationToeknRequestBuilder.addHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON);
+
+            HttpRequest tokenRequest = applicationToeknRequestBuilder.build();
+
+            String applicationToken = null;
+            try (HttpClient client = new HttpClient(runContext, options)) {
+                applicationToken = (String) client.request(tokenRequest, Map.class).getBody().getOrDefault("access_token", null);
+            } catch (HttpClientException | IOException e) {
+                throw new RuntimeException(e);
+            }
+
+            if (applicationToken != null) {
+                this.token = Property.of(applicationToken);
+            }
+        }
+    }
+
+    @Builder
+    @Getter
+    public static class ApplicationCredentials {
+        @Schema(title = "Client ID.")
+        @NotNull
+        private Property<String> clientId;
+
+        @Schema(title = "Client Secret.")
+        @NotNull
+        private Property<String> clientSecret;
     }
 }
