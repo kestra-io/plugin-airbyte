@@ -131,13 +131,15 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         }
 
         CheckStatus checkStatus = CheckStatus.builder()
-                .url(getUrl())
-                .username(getUsername())
-                .password(getPassword())
-                .pollFrequency(pollFrequency)
-                .maxDuration(maxDuration)
-                .jobId(Property.of(jobId.toString()))
-                .build();
+            .url(getUrl())
+            .username(getUsername())
+            .password(getPassword())
+            .token(getToken())
+            .applicationCredentials(getApplicationCredentials())
+            .pollFrequency(pollFrequency)
+            .maxDuration(maxDuration)
+            .jobId(Property.of(jobId.toString()))
+            .build();
 
         checkStatus.run(runContext);
 

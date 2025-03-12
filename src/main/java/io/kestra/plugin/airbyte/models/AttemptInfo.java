@@ -10,4 +10,5 @@ import lombok.extern.jackson.Jacksonized;
 public class AttemptInfo {
     Attempt attempt;
     Log logs;
+    String logType;
 }

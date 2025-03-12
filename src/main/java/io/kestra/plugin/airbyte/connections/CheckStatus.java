@@ -87,7 +87,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         JobInfo finalJobStatus = Await.until(
             throwSupplier(() -> {
                 HttpRequest.HttpRequestBuilder fetchJobRequest = HttpRequest.builder()
-                    .uri(URI.create(getUrl()+ "/api/v1/connections/sync/"))
+                    .uri(URI.create(getUrl()+ "/api/v1/jobs/get/"))
                     .method("POST")
                     .body(HttpRequest.JsonRequestBody.builder()
                         .content(Map.of("id", jobIdRendered))
