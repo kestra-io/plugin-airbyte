@@ -46,6 +46,27 @@ import java.util.Optional;
                     url: http://localhost:8080
                     connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd
                 """
+        ),
+        @Example(
+            full = true,
+            title = "Trigger a single Airbyte sync on schedule",
+            code = """
+                id: airbyte_sync
+                namespace: company.team
+                
+                tasks:
+                  - id: data_ingestion
+                    type: io.kestra.plugin.airbyte.connections.Sync
+                    connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12ab
+                    url: http://host.docker.internal:8000/
+                    username: "{{ secret('AIRBYTE_USERNAME') }}"
+                    password: "{{ secret('AIRBYTE_PASSWORD') }}"
+                
+                triggers:
+                  - id: every_minute
+                    type: io.kestra.plugin.core.trigger.Schedule
+                    cron: "*/1 * * * *"
+            """
         )
     }
 )
