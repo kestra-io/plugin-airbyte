@@ -30,7 +30,7 @@ import java.util.Optional;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Run a sync on a connection."
+    title = "Run an Airbyte sync."
 )
 @Plugin(
     examples = {
