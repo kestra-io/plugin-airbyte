@@ -19,7 +19,7 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Reset a job."
+    title = "Reset an Airbyte Cloud job."
 )
 @Plugin(
     examples = {

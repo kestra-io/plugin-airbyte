@@ -32,7 +32,7 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Check job status of a running sync connection."
+    title = "Check status of an Airbyte sync."
 )
 @Plugin(
     examples = {
