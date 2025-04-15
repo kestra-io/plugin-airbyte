@@ -114,7 +114,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
         try {
             HttpRequest.HttpRequestBuilder syncRequest = HttpRequest.builder()
-                .uri(URI.create(getUrl()+ "/api/v1/connections/sync/"))
+                .uri(URI.create(runContext.render(getUrl()).as(String.class).orElseThrow() + "/api/v1/connections/sync/"))
                 .method("POST")
                 .body(HttpRequest.JsonRequestBody.builder()
                     .content(Map.of("connectionId", runContext.render(this.connectionId).as(String.class).orElseThrow()))
