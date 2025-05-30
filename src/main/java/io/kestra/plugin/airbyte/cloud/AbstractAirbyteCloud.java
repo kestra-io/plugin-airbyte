@@ -50,7 +50,7 @@ public abstract class AbstractAirbyteCloud extends Task {
         description = "See: https://reference.airbyte.com/reference/createaccesstoken"
     )
     @Builder.Default
-    private Property<String> tokenURL = Property.of(DEFAULT_TOKEN_URL);
+    private Property<String> tokenURL = Property.ofValue(DEFAULT_TOKEN_URL);
 
     @Schema(
         title = "BasicAuth authentication username."
