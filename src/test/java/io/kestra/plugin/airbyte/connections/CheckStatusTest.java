@@ -26,21 +26,21 @@ class CheckStatusTest {
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
         Sync task = Sync.builder()
-                .url(Property.of("http://localhost:8001"))
-                .username(Property.of("airbyte"))
-                .password(Property.of("password"))
-                .wait(Property.of(false))
-                .connectionId(Property.of("571304a1-498f-4382-b2ff-e791291b6363"))
+                .url(Property.ofValue("http://localhost:8001"))
+                .username(Property.ofValue("airbyte"))
+                .password(Property.ofValue("password"))
+                .wait(Property.ofValue(false))
+                .connectionId(Property.ofValue("571304a1-498f-4382-b2ff-e791291b6363"))
                 .build();
 
         Sync.Output runOutput = task.run(runContext);
 
         CheckStatus checkStatus = CheckStatus.builder()
-                        .url(Property.of("http://localhost:8001"))
-                        .username(Property.of("airbyte"))
-                        .password(Property.of("password"))
-                        .jobId(Property.of(runOutput.getJobId().toString()))
-                        .maxDuration(Property.of(Duration.ofMinutes(60)))
+                        .url(Property.ofValue("http://localhost:8001"))
+                        .username(Property.ofValue("airbyte"))
+                        .password(Property.ofValue("password"))
+                        .jobId(Property.ofValue(runOutput.getJobId().toString()))
+                        .maxDuration(Property.ofValue(Duration.ofMinutes(60)))
                         .build();
 
         CheckStatus.Output checkStatusOutput = checkStatus.run(runContext);
