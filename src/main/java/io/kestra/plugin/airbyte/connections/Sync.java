@@ -14,6 +14,7 @@ import io.kestra.core.http.client.HttpClientException;
 import io.kestra.core.http.client.HttpClientRequestException;
 import io.kestra.core.http.client.HttpClientResponseException;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 import org.slf4j.Logger;
@@ -53,7 +54,7 @@ import java.util.Optional;
             code = """
                 id: airbyte_sync
                 namespace: company.team
-                
+
                 tasks:
                   - id: data_ingestion
                     type: io.kestra.plugin.airbyte.connections.Sync
@@ -61,12 +62,12 @@ import java.util.Optional;
                     url: http://host.docker.internal:8000/
                     username: "{{ secret('AIRBYTE_USERNAME') }}"
                     password: "{{ secret('AIRBYTE_PASSWORD') }}"
-                
+
                 triggers:
                   - id: every_minute
                     type: io.kestra.plugin.core.trigger.Schedule
                     cron: "*/1 * * * *"
-            """
+                """
         )
     }
 )
@@ -80,6 +81,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Schema(
         title = "The connection ID to sync."
     )
+    @NotNull
     private Property<String> connectionId;
 
     @Schema(
