@@ -45,7 +45,7 @@ public abstract class AbstractAirbyteConnection extends Task {
 
     @Schema(title = "HTTP connection timeout.")
     @Builder.Default
-    private Property<Duration> httpTimeout = Property.ofValue(Duration.ofSeconds(10));
+    private Property<Duration> httpTimeout = Property.of(Duration.ofSeconds(10));
 
     @Schema(title = "The HTTP client configuration.")
     protected HttpConfiguration options;
@@ -116,7 +116,7 @@ public abstract class AbstractAirbyteConnection extends Task {
             }
 
             if (applicationToken != null) {
-                this.token = Property.ofValue(applicationToken);
+                this.token = Property.of(applicationToken);
             }
         }
     }

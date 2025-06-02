@@ -25,10 +25,10 @@ class SyncTest {
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
         Sync task = Sync.builder()
-            .url(Property.ofValue("http://localhost:8000"))
-            .username(Property.ofValue("airbyte"))
-            .password(Property.ofValue("password"))
-            .connectionId(Property.ofValue("3ef5d9a0-4f16-42db-9ab5-8dd3c4822391"))
+            .url(Property.of("http://localhost:8000"))
+            .username(Property.of("airbyte"))
+            .password(Property.of("password"))
+            .connectionId(Property.of("3ef5d9a0-4f16-42db-9ab5-8dd3c4822391"))
             .build();
 
         Sync.Output runOutput = task.run(runContext);
@@ -43,13 +43,13 @@ class SyncTest {
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
         Sync task = Sync.builder()
-            .url(Property.ofValue("http://localhost:8000"))
+            .url(Property.of("http://localhost:8000"))
             .applicationCredentials(AbstractAirbyteConnection.ApplicationCredentials.builder()
-                .clientId(Property.ofValue("b112220e-3116-4c00-a4e5-8b828836081b"))
-                .clientSecret(Property.ofValue("U4n9TZIVkfRVFK6GadANGjjTZRQkZTlD"))
+                .clientId(Property.of("b112220e-3116-4c00-a4e5-8b828836081b"))
+                .clientSecret(Property.of("U4n9TZIVkfRVFK6GadANGjjTZRQkZTlD"))
                 .build())
-            .connectionId(Property.ofValue("31380e9c-0fb4-4cd1-915a-81b305ac4733"))
-            .wait(Property.ofValue(true))
+            .connectionId(Property.of("31380e9c-0fb4-4cd1-915a-81b305ac4733"))
+            .wait(Property.of(true))
             .build();
 
         Sync.Output runOutput = task.run(runContext);
