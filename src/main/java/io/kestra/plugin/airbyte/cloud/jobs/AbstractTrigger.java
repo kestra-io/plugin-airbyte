@@ -11,7 +11,6 @@ import com.airbyte.api.models.shared.JobTypeEnum;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
-import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.executions.metrics.Timer;
 import io.kestra.core.models.property.Property;
@@ -20,6 +19,7 @@ import io.kestra.core.runners.RunContext;
 import io.kestra.core.utils.Await;
 import io.kestra.plugin.airbyte.cloud.AbstractAirbyteCloud;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 import org.slf4j.Logger;
@@ -64,6 +64,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     @Schema(
         title = "The connection ID to sync."
     )
+    @NotNull
     private Property<String> connectionId;
 
     @Schema(
@@ -71,19 +72,19 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         description = "Allowing capture of job status & logs."
     )
     @Builder.Default
-    Property<Boolean> wait = Property.of(true);
+    Property<Boolean> wait = Property.ofValue(true);
 
     @Schema(
         title = "The maximum total wait duration."
     )
     @Builder.Default
-    Property<Duration> maxDuration = Property.of(Duration.ofMinutes(60));
+    Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
 
     @Schema(
         title = "Specify frequency for state check API call."
     )
     @Builder.Default
-    Property<Duration> pollFrequency = Property.of(Duration.ofSeconds(1));
+    Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
 
     abstract protected JobTypeEnum syncType();
 
@@ -98,12 +99,12 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
             this.syncType()
         );
 
-        CreateJobResponse createJobResponse = client.jobs.createJob(createJobRequest);
-        this.validate(createJobResponse.rawResponse);
+        CreateJobResponse createJobResponse = client.jobs().createJob(createJobRequest);
+        this.validate(createJobResponse.rawResponse());
 
-        Job createJob = Job.of(createJobResponse.jobResponse);
+        Job createJob = Job.of(createJobResponse.jobResponse().orElseThrow());
 
-        logger.info("Job id {} with response: {}", createJobResponse.jobResponse.jobId, createJob);
+        logger.info("Job id {} with response: {}", createJob.jobId, createJob);
 
         if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
             return AbstractTrigger.Output.builder()
@@ -111,17 +112,17 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
                 .build();
         }
 
-        GetJobRequest getJobRequest = new GetJobRequest(createJobResponse.jobResponse.jobId);
+        GetJobRequest getJobRequest = new GetJobRequest(createJob.jobId);
 
         // wait for end
         JobResponse finalJobResponse = Await.until(
             throwSupplier(() -> {
-                GetJobResponse job = client.jobs.getJob(getJobRequest);
-                this.validate(job.rawResponse);
+                GetJobResponse job = client.jobs().getJob(getJobRequest);
+                this.validate(job.rawResponse());
 
                 // ended
-                if (ENDED_STATUS.contains(job.jobResponse.status)) {
-                    return job.jobResponse;
+                if (ENDED_STATUS.contains(job.jobResponse().orElseThrow().status())) {
+                    return job.jobResponse().orElseThrow();
                 }
 
                 return null;
@@ -130,18 +131,14 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
             runContext.render(this.maxDuration).as(Duration.class).orElseThrow()
         );
 
-        if (finalJobResponse.bytesSynced != null) {
-            runContext.metric(Counter.of("bytes_synced", finalJobResponse.bytesSynced));
-        }
+        finalJobResponse.bytesSynced()
+            .ifPresent(bytesSynced -> runContext.metric(Counter.of("bytes_synced", bytesSynced)));
 
-        if (finalJobResponse.rowsSynced != null) {
-            runContext.metric(Counter.of("rows_synced", finalJobResponse.rowsSynced));
-        }
+        finalJobResponse.rowsSynced()
+            .ifPresent(rowsSynced -> runContext.metric(Counter.of("rows_synced", rowsSynced)));
 
-
-        if (finalJobResponse.duration != null) {
-            runContext.metric(Timer.of("duration", Duration.parse(finalJobResponse.duration)));
-        }
+        finalJobResponse.duration()
+            .ifPresent(duration -> runContext.metric(Timer.of("duration", Duration.parse(duration))));
 
         return Output.builder()
             .job(Job.of(finalJobResponse))
@@ -171,14 +168,14 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
         public static Job of(JobResponse jobResponse) {
             return Job.builder()
-                .jobId(jobResponse.jobId)
-                .startTime(ZonedDateTime.parse(jobResponse.startTime))
-                .lastUpdatedAt(jobResponse.lastUpdatedAt == null ? null : ZonedDateTime.parse(jobResponse.lastUpdatedAt))
-                .jobType(jobResponse.jobType)
-                .status(jobResponse.status)
-                .duration(jobResponse.duration == null ? null : Duration.parse(jobResponse.duration))
-                .bytesSynced(jobResponse.bytesSynced)
-                .rowsSynced(jobResponse.rowsSynced)
+                .jobId(jobResponse.jobId())
+                .startTime(ZonedDateTime.parse(jobResponse.startTime()))
+                .lastUpdatedAt(jobResponse.lastUpdatedAt().map(ZonedDateTime::parse).orElse(null))
+                .jobType(jobResponse.jobType())
+                .status(jobResponse.status())
+                .duration(jobResponse.duration().map(Duration::parse).orElse(null))
+                .bytesSynced(jobResponse.bytesSynced().orElse(null))
+                .rowsSynced(jobResponse.rowsSynced().orElse(null))
                 .build();
         }
     }

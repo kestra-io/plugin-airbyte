@@ -63,7 +63,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
     @Schema(title = "The maximum total wait duration.")
     @Builder.Default
-    Property<Duration> maxDuration = Property.of(Duration.ofMinutes(60));
+    Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
 
     @Builder.Default
     @Getter(AccessLevel.NONE)
@@ -71,7 +71,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
     @Schema(title = "Specify how often the task should poll for the sync status.")
     @Builder.Default
-    Property<Duration> pollFrequency = Property.of(Duration.ofSeconds(1));
+    Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
 
     @Override
     public CheckStatus.Output run(RunContext runContext) throws Exception {
