@@ -89,25 +89,25 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         description = "Allowing capture of job status & logs."
     )
     @Builder.Default
-    private Property<Boolean> wait = Property.ofValue(true);
+    private Property<Boolean> wait = Property.of(true);
 
     @Schema(
         title = "The maximum total wait duration."
     )
     @Builder.Default
-    Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
+    Property<Duration> maxDuration = Property.of(Duration.ofMinutes(60));
 
     @Schema(
         title = "Specify frequency for sync attempt state check API call."
     )
     @Builder.Default
-    Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
+    Property<Duration> pollFrequency = Property.of(Duration.ofSeconds(1));
 
     @Schema(
         title = "Specify whether task should fail if a sync is already running."
     )
     @Builder.Default
-    Property<Boolean> failOnActiveSync = Property.ofValue(true);
+    Property<Boolean> failOnActiveSync = Property.of(true);
 
     @Override
     public Sync.Output run(RunContext runContext) throws Exception {
@@ -161,7 +161,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .applicationCredentials(getApplicationCredentials())
             .pollFrequency(pollFrequency)
             .maxDuration(maxDuration)
-            .jobId(Property.ofValue(jobId.toString()))
+            .jobId(Property.of(jobId.toString()))
             .build();
 
         checkStatus.run(runContext);
