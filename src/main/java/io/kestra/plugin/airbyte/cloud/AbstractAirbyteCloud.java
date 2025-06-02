@@ -11,10 +11,7 @@ import io.kestra.core.models.tasks.retrys.Exponential;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.utils.RetryUtils;
 import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
+import lombok.*;
 import lombok.experimental.SuperBuilder;
 import org.apache.commons.io.IOUtils;
 
@@ -32,6 +29,7 @@ import java.time.Duration;
 @Getter
 @NoArgsConstructor
 public abstract class AbstractAirbyteCloud extends Task {
+    public static final String DEFAULT_TOKEN_URL = "https://api.airbyte.com/v1/applications/token";
     @Schema(
         title = "API key."
     )
@@ -48,9 +46,11 @@ public abstract class AbstractAirbyteCloud extends Task {
     private Property<String> clientSecret;
 
     @Schema(
-        title = "API key."
+        title = "Token URL to get an access token from.",
+        description = "See: https://reference.airbyte.com/reference/createaccesstoken"
     )
-    private Property<String> tokenURL;
+    @Builder.Default
+    private Property<String> tokenURL = Property.ofValue(DEFAULT_TOKEN_URL);
 
     @Schema(
         title = "BasicAuth authentication username."
@@ -71,7 +71,7 @@ public abstract class AbstractAirbyteCloud extends Task {
             security.withClientCredentials(new SchemeClientCredentials(
                 runContext.render(this.clientId).as(String.class).orElseThrow(),
                 runContext.render(this.clientSecret).as(String.class).orElseThrow(),
-                runContext.render(this.tokenURL).as(String.class).orElseThrow()
+                runContext.render(this.tokenURL).as(String.class).orElse(DEFAULT_TOKEN_URL)
             ));
         } else {
             security.withBasicAuth(new SchemeBasicAuth(
