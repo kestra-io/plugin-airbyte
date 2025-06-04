@@ -92,8 +92,8 @@ public abstract class AbstractAirbyteConnection extends Task {
             final String clientId = runContext.render(this.applicationCredentials.getClientId()).as(String.class).orElseThrow();
             final String clientSecret = runContext.render(this.applicationCredentials.getClientSecret()).as(String.class).orElseThrow();
 
-            HttpRequest.HttpRequestBuilder applicationToeknRequestBuilder = HttpRequest.builder()
-                .uri(URI.create(getUrl()+ "/api/v1/applications/token"))
+            HttpRequest.HttpRequestBuilder applicationTokenRequestBuilder = HttpRequest.builder()
+                .uri(URI.create(getUrl() + "/api/v1/applications/token"))
                 .method("POST")
                 .body(HttpRequest.JsonRequestBody.builder()
                     .content(Map.of(
@@ -103,12 +103,12 @@ public abstract class AbstractAirbyteConnection extends Task {
                     ))
                     .build()
                 );
-            applicationToeknRequestBuilder.addHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON);
-            applicationToeknRequestBuilder.addHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON);
+            applicationTokenRequestBuilder.addHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON);
+            applicationTokenRequestBuilder.addHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON);
 
-            HttpRequest tokenRequest = applicationToeknRequestBuilder.build();
+            HttpRequest tokenRequest = applicationTokenRequestBuilder.build();
 
-            String applicationToken = null;
+            String applicationToken;
             try (HttpClient client = new HttpClient(runContext, options)) {
                 applicationToken = (String) client.request(tokenRequest, Map.class).getBody().getOrDefault("access_token", null);
             } catch (HttpClientException | IOException e) {
