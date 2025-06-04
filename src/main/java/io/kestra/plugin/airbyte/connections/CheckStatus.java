@@ -43,10 +43,10 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
                 namespace: company.team
 
                 tasks:
-                  - id: "check_status"
-                    type: "io.kestra.plugin.airbyte.connections.CheckStatus"
+                  - id: check_status
+                    type: io.kestra.plugin.airbyte.connections.CheckStatus
                     url: http://localhost:8080
-                    jobId: 970
+                    jobId: "970"
                 """
         )
     }
