@@ -72,19 +72,19 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         description = "Allowing capture of job status & logs."
     )
     @Builder.Default
-    Property<Boolean> wait = Property.of(true);
+    Property<Boolean> wait = Property.ofValue(true);
 
     @Schema(
         title = "The maximum total wait duration."
     )
     @Builder.Default
-    Property<Duration> maxDuration = Property.of(Duration.ofMinutes(60));
+    Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
 
     @Schema(
         title = "Specify frequency for state check API call."
     )
     @Builder.Default
-    Property<Duration> pollFrequency = Property.of(Duration.ofSeconds(1));
+    Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
 
     abstract protected JobTypeEnum syncType();
 
