@@ -96,7 +96,7 @@ public abstract class AbstractAirbyteCloud extends Task {
                         .delayFactor(2.0)
                         .interval(Duration.ofSeconds(1))
                         .maxInterval(Duration.ofSeconds(15))
-                        .maxAttempt(-1)
+                        .maxAttempts(-1)
                         .maxDuration(Duration.ofMinutes(5))
                         .build(),
                     runContext.logger()
