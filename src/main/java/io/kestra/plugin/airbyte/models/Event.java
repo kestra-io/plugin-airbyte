@@ -6,6 +6,7 @@ import lombok.extern.jackson.Jacksonized;
 
 import java.util.Map;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Value
 @Jacksonized
 @SuperBuilder
