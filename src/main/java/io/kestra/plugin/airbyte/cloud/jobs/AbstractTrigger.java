@@ -62,26 +62,26 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     );
 
     @Schema(
-        title = "The connection ID to sync."
+        title = "The connection ID to sync"
     )
     @NotNull
     private Property<String> connectionId;
 
     @Schema(
-        title = "Wait for the job to end.",
-        description = "Allowing capture of job status & logs."
+        title = "Wait for the job to end",
+        description = "Allows the capture of job status & logs"
     )
     @Builder.Default
     Property<Boolean> wait = Property.ofValue(true);
 
     @Schema(
-        title = "The maximum total wait duration."
+        title = "The maximum total wait duration"
     )
     @Builder.Default
     Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
 
     @Schema(
-        title = "Specify frequency for state check API call."
+        title = "Specifies the frequency for state check API call"
     )
     @Builder.Default
     Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
@@ -149,7 +149,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The job created."
+            title = "The job created"
         )
         private final Job job;
     }
