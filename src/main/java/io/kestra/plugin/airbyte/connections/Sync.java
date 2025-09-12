@@ -17,6 +17,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import org.apache.hc.client5.http.ClientProtocolException;
 import org.slf4j.Logger;
 
 import java.net.URI;
@@ -118,14 +119,14 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             HttpRequest.HttpRequestBuilder syncRequest = HttpRequest.builder()
                 .uri(URI.create(runContext.render(getUrl()).as(String.class).orElseThrow() + "/api/v1/connections/sync/"))
                 .method("POST")
+                .addHeader("Accept-Encoding", "identity")
                 .body(HttpRequest.JsonRequestBody.builder()
                     .content(Map.of("connectionId", runContext.render(this.connectionId).as(String.class).orElseThrow()))
                     .build());
 
             syncResponse = this.request(runContext, syncRequest, JobInfo.class);
-        } catch (HttpClientRequestException | HttpClientResponseException e) {
-            if (e.getMessage().contains("A sync is already running")) {
-                logger.info("This Airbyte sync is already running, Kestra cannot trigger a new execution.");
+        } catch (HttpClientRequestException | HttpClientResponseException | RuntimeException e) {
+            if (e.getMessage() != null && e.getMessage().contains("A sync is already running")) {
                 if (runContext.render(this.failOnActiveSync).as(Boolean.class).orElseThrow()) {
                     throw e;
                 } else {

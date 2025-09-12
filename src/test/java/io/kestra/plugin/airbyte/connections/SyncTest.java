@@ -1,13 +1,12 @@
 package io.kestra.plugin.airbyte.connections;
 
 import com.google.common.collect.ImmutableMap;
+import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
-import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
-import io.kestra.core.junit.annotations.KestraTest;
+import io.kestra.plugin.airbyte.AbstractAirbyteConnectionTest;
 import jakarta.inject.Inject;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -15,41 +14,19 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 
 @KestraTest
-class SyncTest {
+class SyncTest extends AbstractAirbyteConnectionTest {
     @Inject
     private RunContextFactory runContextFactory;
 
     @Test
-    @Disabled("Unable to spawn airbyte cluster with connection configured")
     void run() throws Exception {
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
         Sync task = Sync.builder()
-            .url(Property.ofValue("http://localhost:8000"))
-            .username(Property.ofValue("airbyte"))
-            .password(Property.ofValue("password"))
-            .connectionId(Property.ofValue("3ef5d9a0-4f16-42db-9ab5-8dd3c4822391"))
-            .build();
-
-        Sync.Output runOutput = task.run(runContext);
-
-        assertThat(runOutput, is(notNullValue()));
-        assertThat(runOutput.getJobId(), is(notNullValue()));
-    }
-
-    @Disabled
-    @Test
-    void run_local_with_app() throws Exception {
-        RunContext runContext = runContextFactory.of(ImmutableMap.of());
-
-        Sync task = Sync.builder()
-            .url(Property.ofValue("http://localhost:8000"))
-            .applicationCredentials(AbstractAirbyteConnection.ApplicationCredentials.builder()
-                .clientId(Property.ofValue("b112220e-3116-4c00-a4e5-8b828836081b"))
-                .clientSecret(Property.ofValue("U4n9TZIVkfRVFK6GadANGjjTZRQkZTlD"))
-                .build())
-            .connectionId(Property.ofValue("31380e9c-0fb4-4cd1-915a-81b305ac4733"))
-            .wait(Property.ofValue(true))
+            .url(Property.ofValue(url))
+            .username(Property.ofValue(username))
+            .password(Property.ofValue(password))
+            .connectionId(Property.ofValue(connectionId))
             .build();
 
         Sync.Output runOutput = task.run(runContext);
