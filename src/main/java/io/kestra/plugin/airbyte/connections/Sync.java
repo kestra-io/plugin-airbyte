@@ -123,10 +123,10 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                     .build());
 
             syncResponse = this.request(runContext, syncRequest, JobInfo.class);
-        } catch (HttpClientRequestException | HttpClientResponseException e) {
-            if (e.getMessage().contains("A sync is already running")) {
+        } catch (HttpClientRequestException | HttpClientResponseException | SyncAlreadyRunningException e) {
+            if (e instanceof SyncAlreadyRunningException || String.valueOf(e.getMessage()).contains("A sync is already running")) {
                 logger.info("This Airbyte sync is already running, Kestra cannot trigger a new execution.");
-                if (runContext.render(this.failOnActiveSync).as(Boolean.class).orElseThrow()) {
+                if (runContext.render(this.failOnActiveSync).as(Boolean.class).orElse(Boolean.TRUE)) {
                     throw e;
                 } else {
                     return Output.builder()
