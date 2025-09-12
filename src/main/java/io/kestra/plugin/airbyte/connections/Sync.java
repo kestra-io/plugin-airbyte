@@ -125,7 +125,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                     .build());
 
             syncResponse = this.request(runContext, syncRequest, JobInfo.class);
-        } catch (HttpClientRequestException | HttpClientResponseException | RuntimeException e) {
+        } catch (HttpClientRequestException | HttpClientResponseException | SyncAlreadyRunningException | RuntimeException e) {
             if (e.getMessage() != null && e.getMessage().contains("A sync is already running")) {
                 if (runContext.render(this.failOnActiveSync).as(Boolean.class).orElseThrow()) {
                     throw e;
