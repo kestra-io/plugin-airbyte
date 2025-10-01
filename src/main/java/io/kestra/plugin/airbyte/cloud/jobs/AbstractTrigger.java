@@ -42,7 +42,7 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
     examples = {
         @Example(
             code = {
-                "token: <token>",
+                "token: \"{{ secret('AIRBYTE_TOKEN') }}\"",
                 "connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd",
             }
         )

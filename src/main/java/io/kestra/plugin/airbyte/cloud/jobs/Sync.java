@@ -29,7 +29,7 @@ import lombok.experimental.SuperBuilder;
                 tasks:
                   - id: sync
                     type: io.kestra.plugin.airbyte.cloud.jobs.Sync
-                    token: <token>
+                    token: \"{{ secret('AIRBYTE_TOKEN') }}\"
                     connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd
                 """
         )
