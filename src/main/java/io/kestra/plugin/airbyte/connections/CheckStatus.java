@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.kestra.core.utils.Rethrow.throwSupplier;
 
+import io.kestra.core.models.annotations.Metric;
+
 @SuperBuilder
 @ToString
 @EqualsAndHashCode
@@ -48,6 +50,38 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
                     url: http://localhost:8080
                     jobId: "970"
                 """
+        )
+    },
+    metrics = {
+        @Metric(
+            name = "attempts.count",
+            type = Counter.TYPE,
+            unit = "attempt",
+            description = "Number of Airbyte sync attempts"
+        ),
+        @Metric(
+            name = "records.committed",
+            type = Counter.TYPE,
+            unit = "record",
+            description = "Number of records successfully committed by Airbyte stream"
+        ),
+        @Metric(
+            name = "records.emitted",
+            type = Counter.TYPE,
+            unit = "record",
+            description = "Number of records emitted by Airbyte stream"
+        ),
+        @Metric(
+            name = "bytes.emitted",
+            type = Counter.TYPE,
+            unit = "byte",
+            description = "Number of bytes emitted by Airbyte stream"
+        ),
+        @Metric(
+            name = "state.emitted",
+            type = Counter.TYPE,
+            unit = "state",
+            description = "Number of state messages emitted by Airbyte stream"
         )
     }
 )
@@ -133,7 +167,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         }
 
         // metrics
-        runContext.metric(Counter.of("attempts.count", finalJobStatus.getAttempts().size()));
+        runContext.metric(Counter.of("attempts.count", "Number of Airbyte sync attempts"), finalJobStatus.getAttempts().size());
 
         finalJobStatus.getAttempts()
             .stream()
@@ -142,16 +176,16 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             .flatMap(attempt -> attempt.getStreamStats().stream())
             .forEach(o -> {
                 if (o.getStats().getRecordsCommitted() != null) {
-                    runContext.metric(Counter.of("records.committed", o.getStats().getRecordsCommitted(), "stream", o.getStreamName()));
+                    runContext.metric(Counter.of("records.committed", "Number of records successfully committed by Airbyte stream", "stream", o.getStreamName()), o.getStats().getRecordsCommitted());
                 }
                 if (o.getStats().getRecordsEmitted() != null) {
-                    runContext.metric(Counter.of("records.emitted", o.getStats().getRecordsEmitted(), "stream", o.getStreamName()));
+                    runContext.metric(Counter.of("records.emitted", "Number of records emitted by Airbyte stream", "stream", o.getStreamName()), o.getStats().getRecordsEmitted());
                 }
                 if (o.getStats().getBytesEmitted() != null) {
-                    runContext.metric(Counter.of("bytes.emitted", o.getStats().getBytesEmitted(), "stream", o.getStreamName()));
+                    runContext.metric(Counter.of("bytes.emitted", "Number of bytes emitted by Airbyte stream", "stream", o.getStreamName()), o.getStats().getBytesEmitted());
                 }
                 if (o.getStats().getStateMessagesEmitted() != null) {
-                    runContext.metric(Counter.of("state.emitted", o.getStats().getStateMessagesEmitted(), "stream", o.getStreamName()));
+                    runContext.metric(Counter.of("state.emitted", "Number of state messages emitted by Airbyte stream", "stream", o.getStreamName()), o.getStats().getStateMessagesEmitted());
                 }
             });
 
