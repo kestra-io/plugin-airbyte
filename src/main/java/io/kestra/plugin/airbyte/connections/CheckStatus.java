@@ -1,6 +1,7 @@
 package io.kestra.plugin.airbyte.connections;
 
 import io.kestra.core.models.annotations.Example;
+import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.property.Property;
@@ -49,6 +50,38 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
                     jobId: "970"
                 """
         )
+    },
+    metrics = {
+        @Metric(
+            name = "attempts.count",
+            type = Counter.TYPE,
+            unit = "attempt",
+            description = "Number of attempts made during the Airbyte sync"
+        ),
+        @Metric(
+            name = "records.committed",
+            type = Counter.TYPE,
+            unit = "record",
+            description = "Number of records successfully committed"
+        ),
+        @Metric(
+            name = "records.emitted",
+            type = Counter.TYPE,
+            unit = "record",
+            description = "Number of records emitted during processing"
+        ),
+        @Metric(
+            name = "bytes.emitted",
+            type = Counter.TYPE,
+            unit = "byte",
+            description = "Number of bytes emitted during processing"
+        ),
+        @Metric(
+            name = "state.emitted",
+            type = Counter.TYPE,
+            unit = "message",
+            description = "Number of state messages emitted"
+        )
     }
 )
 public class CheckStatus extends AbstractAirbyteConnection implements RunnableTask<CheckStatus.Output> {
@@ -87,7 +120,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         JobInfo finalJobStatus = Await.until(
             throwSupplier(() -> {
                 HttpRequest.HttpRequestBuilder fetchJobRequest = HttpRequest.builder()
-                    .uri(URI.create(getUrl()+ "/api/v1/jobs/get/"))
+                    .uri(URI.create(getUrl() + "/api/v1/jobs/get/"))
                     .method("POST")
                     .body(HttpRequest.JsonRequestBody.builder()
                         .content(Map.of("id", jobIdRendered))
@@ -99,21 +132,21 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                     JobInfo jobStatus = response.getBody();
                     sendLog(logger, jobStatus);
 
-                        // ended
-                        if (ENDED_JOB_STATUS.contains(jobStatus.getJob().getStatus())) {
-                            return jobStatus;
-                        }
-
-                        // Handle case of failed attempt, Airbyte started a new attempt
-                        if (jobStatus.getAttempts().size() > attemptCounter.get()) {
-                            logger.warn("Previous attempt failed, creating a new sync attempt ...");
-                            attemptCounter.getAndIncrement();
-                        }
+                    // ended
+                    if (ENDED_JOB_STATUS.contains(jobStatus.getJob().getStatus())) {
+                        return jobStatus;
                     }
-                    return null;
-                }),
-                runContext.render(this.pollFrequency).as(Duration.class).orElseThrow(),
-                runContext.render(this.maxDuration).as(Duration.class).orElseThrow()
+
+                    // Handle case of failed attempt, Airbyte started a new attempt
+                    if (jobStatus.getAttempts().size() > attemptCounter.get()) {
+                        logger.warn("Previous attempt failed, creating a new sync attempt ...");
+                        attemptCounter.getAndIncrement();
+                    }
+                }
+                return null;
+            }),
+            runContext.render(this.pollFrequency).as(Duration.class).orElseThrow(),
+            runContext.render(this.maxDuration).as(Duration.class).orElseThrow()
         );
 
         // failure message
@@ -128,7 +161,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         if (!finalJobStatus.getJob().getStatus().equals(JobStatus.SUCCEEDED)) {
             int attemptCount = finalJobStatus.getAttempts().size();
             throw new Exception("Failed run with status '" + finalJobStatus.getJob().getStatus() +
-                    "' after " +  attemptCount + " attempt(s) : " + finalJobStatus
+                    "' after " + attemptCount + " attempt(s) : " + finalJobStatus
             );
         }
 
@@ -156,8 +189,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             });
 
         return Output.builder()
-                .finalJobStatus(finalJobStatus.getJob().getStatus().toString())
-                .build();
+            .finalJobStatus(finalJobStatus.getJob().getStatus().toString())
+            .build();
     }
 
     private void sendLog(Logger logger, JobInfo job) {
@@ -166,19 +199,19 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         for (AttemptInfo attempt : job.getAttempts()) {
             if (!loggedLine.containsKey(index) || attempt.getLogs().getLogLines().size() > loggedLine.get(index)) {
                 attempt.getLogs()
-                        .getLogLines()
-                        .subList(!loggedLine.containsKey(index) ? 0 : loggedLine.get(index) + 1, attempt.getLogs().getLogLines().size())
-                        .forEach(msg -> {
-                            if (msg.contains("ERROR[")) {
-                                logger.error(msg);
-                            } else if (msg.contains("DEBUG[")) {
-                                logger.debug(msg);
-                            } else if (msg.contains("TRACE[")) {
-                                logger.trace(msg);
-                            } else {
-                                logger.info(msg);
-                            }
-                        });
+                    .getLogLines()
+                    .subList(!loggedLine.containsKey(index) ? 0 : loggedLine.get(index) + 1, attempt.getLogs().getLogLines().size())
+                    .forEach(msg -> {
+                        if (msg.contains("ERROR[")) {
+                            logger.error(msg);
+                        } else if (msg.contains("DEBUG[")) {
+                            logger.debug(msg);
+                        } else if (msg.contains("TRACE[")) {
+                            logger.trace(msg);
+                        } else {
+                            logger.info(msg);
+                        }
+                    });
 
                 loggedLine.put(index, attempt.getLogs().getLogLines().size());
             }
