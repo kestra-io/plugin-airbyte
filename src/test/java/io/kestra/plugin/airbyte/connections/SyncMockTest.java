@@ -58,7 +58,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
                   """)));
 
 
-        RunContext ctx = runContextFactory.of(Map.of());
+        RunContext runContext = runContextFactory.of(Map.of());
 
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
@@ -72,7 +72,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
             .wait(Property.ofValue(true))
             .build();
 
-        var out = task.run(ctx);
+        var out = task.run(runContext);
         assertThat(out, notNullValue());
         assertThat(out.getJobId(), notNullValue());
     }
