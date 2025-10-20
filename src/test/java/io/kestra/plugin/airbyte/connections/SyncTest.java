@@ -27,7 +27,6 @@ class SyncTest extends AbstractAirbyteConnectionTest {
             .username(Property.ofValue(username))
             .password(Property.ofValue(password))
             .connectionId(Property.ofValue(connectionId))
-            .failOnActiveSync(Property.ofValue(false))
             .build();
 
         Sync.Output runOutput = task.run(runContext);

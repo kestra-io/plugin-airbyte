@@ -53,7 +53,7 @@ DST=$(api "/destinations/create" -d "{
 
 # connection
 CONN=$(jq -n --arg s "$SRC" --arg d "$DST" --arg n "$CONN_NAME" --argjson c "$CAT" \
-  '{sourceId:$s,destinationId:$d,syncCatalog:$c,scheduleType:"manual",status:"active",name:$n}' \
+  '{sourceId:$s,destinationId:$d,syncCatalog:$c,scheduleType:"manual",status:"inactive",name:$n}' \
   | api "/connections/create" -d @- | jq -r '.connectionId')
 
 # config file
