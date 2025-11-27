@@ -1,0 +1,8 @@
+group: io.kestra.plugin.airbyte.connections
+name: "connections"
+title: "Connections"
+description: "This sub-group of plugins contains tasks for using Airbyte. Airbyte is an open-source data integration engine that helps you consolidate your data in your data warehouses, lakes and databases."
+body: ""
+videos: []
+createdBy: "Kestra Core Team"
+managedBy: "Kestra Core Team"
