@@ -12,8 +12,6 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.connections.SyncAlreadyRunningException;
-import io.micronaut.http.HttpHeaders;
-import io.micronaut.http.MediaType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
@@ -57,7 +55,7 @@ public abstract class AbstractAirbyteConnection extends Task {
     protected <REQ, RES> HttpResponse<RES> request(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder, Class<RES> responseType)
         throws HttpClientException, IllegalVariableEvaluationException, SyncAlreadyRunningException {
 
-        requestBuilder.addHeader("Content-Type", MediaType.APPLICATION_JSON);
+        requestBuilder.addHeader("Content-Type", "application/json");
 
         retrieveApplicationCredentialsToken(runContext);
 
@@ -103,8 +101,8 @@ public abstract class AbstractAirbyteConnection extends Task {
                     ))
                     .build()
                 );
-            applicationTokenRequestBuilder.addHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON);
-            applicationTokenRequestBuilder.addHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON);
+            applicationTokenRequestBuilder.addHeader("Accept", "application/json");
+            applicationTokenRequestBuilder.addHeader("Content-Type", "application/json");
 
             HttpRequest tokenRequest = applicationTokenRequestBuilder.build();
 

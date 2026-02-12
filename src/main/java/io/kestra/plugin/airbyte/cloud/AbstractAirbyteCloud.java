@@ -90,7 +90,7 @@ public abstract class AbstractAirbyteCloud extends Task {
         private final RetryUtils.Instance<HttpResponse<InputStream>, Exception> retry;
 
         public CustomHttpClient(RunContext runContext) {
-            retry = new RetryUtils()
+            retry = RetryUtils
                 .of(
                     Exponential.builder()
                         .delayFactor(2.0)
