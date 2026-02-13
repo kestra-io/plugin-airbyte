@@ -17,8 +17,10 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 import jakarta.validation.constraints.NotNull;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -78,11 +80,29 @@ public abstract class AbstractAirbyteConnection extends Task {
         } catch (IOException e) {
             throw new RuntimeException("HTTP request failed", e);
         } catch (HttpClientResponseException e) {
-            if (Objects.requireNonNull(e.getResponse()).getStatus().getCode() == 409) {
+            if (this.isAlreadyRunningError(e)) {
                 throw new SyncAlreadyRunningException("A sync is already running");
             }
             throw new RuntimeException("Request failed with status: " + e.getResponse().getStatus().getCode(), e);
         }
+    }
+
+    private boolean isAlreadyRunningError(HttpClientResponseException exception) {
+        if (Objects.requireNonNull(exception.getResponse()).getStatus().getCode() == 409) {
+            return true;
+        }
+
+        var lowerCaseMessage = Objects.toString(exception.getMessage(), "").toLowerCase(Locale.ROOT);
+        if (lowerCaseMessage.contains("already running")) {
+            return true;
+        }
+
+        var responseBody = exception.getResponse().getBody();
+        if (responseBody instanceof byte[] rawBody) {
+            return new String(rawBody, StandardCharsets.UTF_8).toLowerCase(Locale.ROOT).contains("already running");
+        }
+
+        return Objects.toString(responseBody, "").toLowerCase(Locale.ROOT).contains("already running");
     }
 
     private void retrieveApplicationCredentialsToken(RunContext runContext) throws IllegalVariableEvaluationException {

@@ -17,6 +17,7 @@ import static org.hamcrest.Matchers.notNullValue;
 class SyncAlreadyRunningTest extends AbstractAirbyteConnectionTest {
     @Test
     void run() throws Exception {
+        assumeAirbyteIntegrationIsConfigured();
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
         Sync task = Sync.builder()

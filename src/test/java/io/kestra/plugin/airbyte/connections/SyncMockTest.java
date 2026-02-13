@@ -14,6 +14,8 @@ import java.util.Map;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.notNullValue;
 
 @KestraTest
@@ -75,5 +77,45 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         var out = task.run(runContext);
         assertThat(out, notNullValue());
         assertThat(out.getJobId(), notNullValue());
+    }
+
+    @Test
+    void run_handles_already_running_when_airbyte_returns_500(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubFor(post(urlPathEqualTo("/api/v1/applications/token"))
+            .withHeader("Content-Type", containing("application/json"))
+            .withRequestBody(matchingJsonPath("$.client_id", equalTo("local-client")))
+            .withRequestBody(matchingJsonPath("$.client_secret", equalTo("local-secret")))
+            .withRequestBody(matchingJsonPath("$.grant-type", equalTo("client_credentials")))
+            .willReturn(okJson("{\"access_token\":\"ey.mock.local\",\"token_type\":\"Bearer\",\"expires_in\":3600}")));
+
+        stubFor(post(urlPathMatching("/api/v1/connections/sync/?"))
+            .withHeader("Authorization", equalTo("Bearer ey.mock.local"))
+            .withRequestBody(matchingJsonPath("$.connectionId", equalTo(connectionId)))
+            .willReturn(serverError().withBody("""
+                {
+                  "message": "A sync is already running for this connection"
+                }
+                """)));
+
+        RunContext runContext = runContextFactory.of(Map.of());
+
+        Sync task = Sync.builder()
+            .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .applicationCredentials(
+                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                    .clientId(Property.ofValue("local-client"))
+                    .clientSecret(Property.ofValue("local-secret"))
+                    .build()
+            )
+            .connectionId(Property.ofValue(connectionId))
+            .failOnActiveSync(Property.ofValue(false))
+            .wait(Property.ofValue(false))
+            .build();
+
+        var out = task.run(runContext);
+
+        assertThat(out, notNullValue());
+        assertThat(out.getAlreadyRunning(), is(true));
+        assertThat(out.getJobId(), is(nullValue()));
     }
 }

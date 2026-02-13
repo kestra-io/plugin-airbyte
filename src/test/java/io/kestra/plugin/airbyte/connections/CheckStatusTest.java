@@ -18,6 +18,7 @@ class CheckStatusTest extends AbstractAirbyteConnectionTest {
 
     @Test
     void run() throws Exception {
+        assumeAirbyteIntegrationIsConfigured();
         RunContext runContext = runContextFactory.of(ImmutableMap.of());
 
         Sync task = Sync.builder()
