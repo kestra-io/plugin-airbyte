@@ -33,7 +33,8 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Run an Airbyte sync."
+    title = "Run an Airbyte connection sync",
+    description = "Starts a sync for an Airbyte connection and, by default, waits for the job to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`"
 )
 @Plugin(
     examples = {
@@ -81,32 +82,36 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     );
 
     @Schema(
-        title = "The connection ID to sync."
+        title = "Connection ID",
+        description = "Airbyte connection ID to sync"
     )
     @NotNull
     private Property<String> connectionId;
 
     @Schema(
-        title = "Wait for the job to end.",
-        description = "Allowing capture of job status & logs."
+        title = "Wait for completion",
+        description = "If `true`, wait for the Airbyte job to reach a terminal state before the task completes. Defaults to `true`"
     )
     @Builder.Default
     private Property<Boolean> wait = Property.ofValue(true);
 
     @Schema(
-        title = "The maximum total wait duration."
+        title = "Maximum wait duration",
+        description = "Maximum total time to wait when `wait` is enabled. Defaults to 60 minutes"
     )
     @Builder.Default
     Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
 
     @Schema(
-        title = "Specify frequency for sync attempt state check API call."
+        title = "Poll frequency",
+        description = "Interval between status checks while waiting for the job to finish. Defaults to 1 second"
     )
     @Builder.Default
     Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
 
     @Schema(
-        title = "Specify whether task should fail if a sync is already running."
+        title = "Fail on active sync",
+        description = "If `true`, fail when Airbyte reports that a sync is already running for the connection. If `false`, the task succeeds with `alreadyRunning` set to `true`"
     )
     @Builder.Default
     Property<Boolean> failOnActiveSync = Property.ofValue(true);
@@ -179,10 +184,16 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Builder
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
-        @Schema(title = "The job ID created.")
+        @Schema(
+            title = "Job ID",
+            description = "Airbyte job ID created by the sync request"
+        )
         private final Long jobId;
 
-        @Schema(title = "Whether a sync was already running.")
+        @Schema(
+            title = "Already running",
+            description = "Whether Airbyte reported that a sync was already running for the connection"
+        )
         private final Boolean alreadyRunning;
     }
 }

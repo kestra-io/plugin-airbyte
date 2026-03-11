@@ -39,7 +39,8 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Run a sync on a connection."
+    title = "Run an Airbyte Cloud job",
+    description = "Creates an Airbyte Cloud job for a connection and, by default, waits for it to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`"
 )
 @Plugin(
     examples = {
@@ -65,26 +66,29 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     );
 
     @Schema(
-        title = "The connection ID to sync"
+        title = "Connection ID",
+        description = "Airbyte Cloud connection ID for the job"
     )
     @NotNull
     private Property<String> connectionId;
 
     @Schema(
-        title = "Wait for the job to end",
-        description = "Allows the capture of job status & logs"
+        title = "Wait for completion",
+        description = "If `true`, wait for the Airbyte Cloud job to reach a terminal state before the task completes. Defaults to `true`"
     )
     @Builder.Default
     Property<Boolean> wait = Property.ofValue(true);
 
     @Schema(
-        title = "The maximum total wait duration"
+        title = "Maximum wait duration",
+        description = "Maximum total time to wait for the job to finish. Defaults to 60 minutes"
     )
     @Builder.Default
     Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
 
     @Schema(
-        title = "Specifies the frequency for state check API call"
+        title = "Poll frequency",
+        description = "Interval between Airbyte Cloud job status checks. Defaults to 1 second"
     )
     @Builder.Default
     Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
@@ -153,7 +157,8 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The job created"
+            title = "Job details",
+            description = "Airbyte Cloud job returned by the task"
         )
         private final Job job;
     }
