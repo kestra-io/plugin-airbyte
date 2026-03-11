@@ -16,3 +16,5 @@ out/
 src/test/resources/application-test.yml
 temporal/
 src/test/java/io/kestra/plugin/airbyte/cloud/jobs/SyncTest.java
+.factorypath
+bin/
