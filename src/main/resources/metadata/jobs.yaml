@@ -1,6 +1,6 @@
 group: io.kestra.plugin.airbyte.cloud.jobs
 name: "jobs"
-title: "Jobs"
+title: "Airbyte Cloud Jobs"
 description: "Tasks that create and monitor Airbyte Cloud jobs for a connection"
 body: "Use these tasks to run sync or reset jobs in Airbyte Cloud and, by default, wait for completion. Provide the `connectionId` and one supported authentication method such as a bearer token, client credentials, or basic auth."
 videos: []
