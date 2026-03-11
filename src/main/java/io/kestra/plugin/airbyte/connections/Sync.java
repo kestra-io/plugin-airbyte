@@ -1,5 +1,18 @@
 package io.kestra.plugin.airbyte.connections;
 
+import java.net.URI;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import org.slf4j.Logger;
+
+import io.kestra.core.http.HttpRequest;
+import io.kestra.core.http.HttpResponse;
+import io.kestra.core.http.client.HttpClientException;
+import io.kestra.core.http.client.HttpClientRequestException;
+import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.property.Property;
@@ -8,23 +21,11 @@ import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobStatus;
-import io.kestra.core.http.HttpRequest;
-import io.kestra.core.http.HttpResponse;
-import io.kestra.core.http.client.HttpClientException;
-import io.kestra.core.http.client.HttpClientRequestException;
-import io.kestra.core.http.client.HttpClientResponseException;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import org.apache.hc.client5.http.ClientProtocolException;
-import org.slf4j.Logger;
-
-import java.net.URI;
-import java.time.Duration;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 @SuperBuilder
 @ToString
@@ -120,9 +121,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                 .uri(URI.create(runContext.render(getUrl()).as(String.class).orElseThrow() + "/api/v1/connections/sync/"))
                 .method("POST")
                 .addHeader("Accept-Encoding", "identity")
-                .body(HttpRequest.JsonRequestBody.builder()
-                    .content(Map.of("connectionId", runContext.render(this.connectionId).as(String.class).orElseThrow()))
-                    .build());
+                .body(
+                    HttpRequest.JsonRequestBody.builder()
+                        .content(Map.of("connectionId", runContext.render(this.connectionId).as(String.class).orElseThrow()))
+                        .build()
+                );
 
             syncResponse = this.request(runContext, syncRequest, JobInfo.class);
         } catch (HttpClientRequestException | HttpClientResponseException | SyncAlreadyRunningException | RuntimeException e) {

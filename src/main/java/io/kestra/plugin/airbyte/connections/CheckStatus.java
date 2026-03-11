@@ -1,5 +1,14 @@
 package io.kestra.plugin.airbyte.connections;
 
+import java.net.URI;
+import java.time.Duration;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.slf4j.Logger;
+
+import io.kestra.core.http.HttpRequest;
+import io.kestra.core.http.HttpResponse;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
@@ -13,17 +22,10 @@ import io.kestra.plugin.airbyte.models.Attempt;
 import io.kestra.plugin.airbyte.models.AttemptInfo;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobStatus;
-import io.kestra.core.http.HttpRequest;
-import io.kestra.core.http.HttpResponse;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import org.slf4j.Logger;
-
-import java.net.URI;
-import java.time.Duration;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.kestra.core.utils.Rethrow.throwSupplier;
 
@@ -118,13 +120,16 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
         // wait for end
         JobInfo finalJobStatus = Await.until(
-            throwSupplier(() -> {
+            throwSupplier(() ->
+            {
                 HttpRequest.HttpRequestBuilder fetchJobRequest = HttpRequest.builder()
                     .uri(URI.create(getUrl() + "/api/v1/jobs/get/"))
                     .method("POST")
-                    .body(HttpRequest.JsonRequestBody.builder()
-                        .content(Map.of("id", jobIdRendered))
-                        .build());
+                    .body(
+                        HttpRequest.JsonRequestBody.builder()
+                            .content(Map.of("id", jobIdRendered))
+                            .build()
+                    );
 
                 HttpResponse<JobInfo> response = this.request(runContext, fetchJobRequest, JobInfo.class);
 
@@ -160,7 +165,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         // handle failed attempt
         if (!finalJobStatus.getJob().getStatus().equals(JobStatus.SUCCEEDED)) {
             int attemptCount = finalJobStatus.getAttempts().size();
-            throw new Exception("Failed run with status '" + finalJobStatus.getJob().getStatus() +
+            throw new Exception(
+                "Failed run with status '" + finalJobStatus.getJob().getStatus() +
                     "' after " + attemptCount + " attempt(s) : " + finalJobStatus
             );
         }
@@ -173,7 +179,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             .map(AttemptInfo::getAttempt)
             .filter(attempt -> attempt.getStreamStats() != null)
             .flatMap(attempt -> attempt.getStreamStats().stream())
-            .forEach(o -> {
+            .forEach(o ->
+            {
                 if (o.getStats().getRecordsCommitted() != null) {
                     runContext.metric(Counter.of("records.committed", o.getStats().getRecordsCommitted(), "stream", o.getStreamName()));
                 }
@@ -201,7 +208,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                 attempt.getLogs()
                     .getLogLines()
                     .subList(!loggedLine.containsKey(index) ? 0 : loggedLine.get(index) + 1, attempt.getLogs().getLogLines().size())
-                    .forEach(msg -> {
+                    .forEach(msg ->
+                    {
                         if (msg.contains("ERROR[")) {
                             logger.error(msg);
                         } else if (msg.contains("DEBUG[")) {

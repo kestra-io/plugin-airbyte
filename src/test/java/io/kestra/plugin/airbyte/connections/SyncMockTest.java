@@ -1,22 +1,25 @@
 package io.kestra.plugin.airbyte.connections;
 
+import java.util.Map;
+
+import org.junit.jupiter.api.Test;
+
 import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.junit5.WireMockTest;
+
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnectionTest;
-import jakarta.inject.Inject;
-import org.junit.jupiter.api.Test;
 
-import java.util.Map;
+import jakarta.inject.Inject;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 
 @KestraTest
 @WireMockTest(httpPort = 18080)
@@ -26,39 +29,43 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
 
     @Test
     void run_local_with_app(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
-        stubFor(post(urlPathEqualTo("/api/v1/applications/token"))
-            .withHeader("Content-Type", containing("application/json"))
-            .withRequestBody(matchingJsonPath("$.client_id", equalTo("local-client")))
-            .withRequestBody(matchingJsonPath("$.client_secret", equalTo("local-secret")))
-            .withRequestBody(matchingJsonPath("$.grant-type", equalTo("client_credentials")))
-            .willReturn(okJson("{\"access_token\":\"ey.mock.local\",\"token_type\":\"Bearer\",\"expires_in\":3600}")));
+        stubFor(
+            post(urlPathEqualTo("/api/v1/applications/token"))
+                .withHeader("Content-Type", containing("application/json"))
+                .withRequestBody(matchingJsonPath("$.client_id", equalTo("local-client")))
+                .withRequestBody(matchingJsonPath("$.client_secret", equalTo("local-secret")))
+                .withRequestBody(matchingJsonPath("$.grant-type", equalTo("client_credentials")))
+                .willReturn(okJson("{\"access_token\":\"ey.mock.local\",\"token_type\":\"Bearer\",\"expires_in\":3600}"))
+        );
 
-        stubFor(post(urlPathMatching("/api/v1/connections/sync/?"))
-            .withHeader("Authorization", equalTo("Bearer ey.mock.local"))
-            .withRequestBody(matchingJsonPath("$.connectionId", equalTo(connectionId)))
-            .willReturn(okJson("""
-                  {
-                    "job": { "id": 123, "status": "running" },
-                    "attempts": []
-                  }
-                  """)));
+        stubFor(
+            post(urlPathMatching("/api/v1/connections/sync/?"))
+                .withHeader("Authorization", equalTo("Bearer ey.mock.local"))
+                .withRequestBody(matchingJsonPath("$.connectionId", equalTo(connectionId)))
+                .willReturn(okJson("""
+                    {
+                      "job": { "id": 123, "status": "running" },
+                      "attempts": []
+                    }
+                    """))
+        );
 
-
-        stubFor(post(urlPathMatching("/api/v1/jobs/get/?"))
-            .withHeader("Authorization", equalTo("Bearer ey.mock.local"))
-            .withRequestBody(matchingJsonPath("$.id"))
-            .willReturn(okJson("""
-                  {
-                    "job": { "id": 123, "status": "succeeded" },
-                    "attempts": [
-                      {
-                        "attempt": { "id": 0, "status": "succeeded" },
-                        "logs": { "logLines": ["sync started", "sync finished"] }
-                      }
-                    ]
-                  }
-                  """)));
-
+        stubFor(
+            post(urlPathMatching("/api/v1/jobs/get/?"))
+                .withHeader("Authorization", equalTo("Bearer ey.mock.local"))
+                .withRequestBody(matchingJsonPath("$.id"))
+                .willReturn(okJson("""
+                    {
+                      "job": { "id": 123, "status": "succeeded" },
+                      "attempts": [
+                        {
+                          "attempt": { "id": 0, "status": "succeeded" },
+                          "logs": { "logLines": ["sync started", "sync finished"] }
+                        }
+                      ]
+                    }
+                    """))
+        );
 
         RunContext runContext = runContextFactory.of(Map.of());
 
@@ -81,21 +88,25 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
 
     @Test
     void run_handles_already_running_when_airbyte_returns_500(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
-        stubFor(post(urlPathEqualTo("/api/v1/applications/token"))
-            .withHeader("Content-Type", containing("application/json"))
-            .withRequestBody(matchingJsonPath("$.client_id", equalTo("local-client")))
-            .withRequestBody(matchingJsonPath("$.client_secret", equalTo("local-secret")))
-            .withRequestBody(matchingJsonPath("$.grant-type", equalTo("client_credentials")))
-            .willReturn(okJson("{\"access_token\":\"ey.mock.local\",\"token_type\":\"Bearer\",\"expires_in\":3600}")));
+        stubFor(
+            post(urlPathEqualTo("/api/v1/applications/token"))
+                .withHeader("Content-Type", containing("application/json"))
+                .withRequestBody(matchingJsonPath("$.client_id", equalTo("local-client")))
+                .withRequestBody(matchingJsonPath("$.client_secret", equalTo("local-secret")))
+                .withRequestBody(matchingJsonPath("$.grant-type", equalTo("client_credentials")))
+                .willReturn(okJson("{\"access_token\":\"ey.mock.local\",\"token_type\":\"Bearer\",\"expires_in\":3600}"))
+        );
 
-        stubFor(post(urlPathMatching("/api/v1/connections/sync/?"))
-            .withHeader("Authorization", equalTo("Bearer ey.mock.local"))
-            .withRequestBody(matchingJsonPath("$.connectionId", equalTo(connectionId)))
-            .willReturn(serverError().withBody("""
-                {
-                  "message": "A sync is already running for this connection"
-                }
-                """)));
+        stubFor(
+            post(urlPathMatching("/api/v1/connections/sync/?"))
+                .withHeader("Authorization", equalTo("Bearer ey.mock.local"))
+                .withRequestBody(matchingJsonPath("$.connectionId", equalTo(connectionId)))
+                .willReturn(serverError().withBody("""
+                    {
+                      "message": "A sync is already running for this connection"
+                    }
+                    """))
+        );
 
         RunContext runContext = runContextFactory.of(Map.of());
 

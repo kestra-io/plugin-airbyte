@@ -1,11 +1,11 @@
 package io.kestra.plugin.airbyte.models;
 
+import java.time.Instant;
+import java.util.List;
+
 import lombok.Value;
 import lombok.experimental.SuperBuilder;
 import lombok.extern.jackson.Jacksonized;
-
-import java.time.Instant;
-import java.util.List;
 
 @Value
 @Jacksonized

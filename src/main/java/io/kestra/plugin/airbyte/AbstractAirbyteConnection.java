@@ -1,5 +1,13 @@
 package io.kestra.plugin.airbyte;
 
+import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.http.HttpResponse;
@@ -12,17 +20,11 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.connections.SyncAlreadyRunningException;
+
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import jakarta.validation.constraints.NotNull;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.net.URI;
-import java.time.Duration;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
 
 @SuperBuilder
 @ToString
@@ -73,7 +75,7 @@ public abstract class AbstractAirbyteConnection extends Task {
             requestBuilder.addHeader("Authorization", basicAuthValue);
         }
 
-        var request= requestBuilder.build();
+        var request = requestBuilder.build();
 
         try (HttpClient client = new HttpClient(runContext, options)) {
             return client.request(request, responseType);
@@ -113,13 +115,16 @@ public abstract class AbstractAirbyteConnection extends Task {
             HttpRequest.HttpRequestBuilder applicationTokenRequestBuilder = HttpRequest.builder()
                 .uri(URI.create(getUrl() + "/api/v1/applications/token"))
                 .method("POST")
-                .body(HttpRequest.JsonRequestBody.builder()
-                    .content(Map.of(
-                        "client_id", clientId,
-                        "client_secret", clientSecret,
-                        "grant-type", "client_credentials"
-                    ))
-                    .build()
+                .body(
+                    HttpRequest.JsonRequestBody.builder()
+                        .content(
+                            Map.of(
+                                "client_id", clientId,
+                                "client_secret", clientSecret,
+                                "grant-type", "client_credentials"
+                            )
+                        )
+                        .build()
                 );
             applicationTokenRequestBuilder.addHeader("Accept", "application/json");
             applicationTokenRequestBuilder.addHeader("Content-Type", "application/json");

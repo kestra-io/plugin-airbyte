@@ -2,6 +2,7 @@ package io.kestra.plugin.airbyte;
 
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.runners.RunContextFactory;
+
 import io.micronaut.context.annotation.Value;
 import jakarta.inject.Inject;
 

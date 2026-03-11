@@ -1,5 +1,11 @@
 package io.kestra.plugin.airbyte.cloud.jobs;
 
+import java.time.Duration;
+import java.time.ZonedDateTime;
+import java.util.List;
+
+import org.slf4j.Logger;
+
 import com.airbyte.api.Airbyte;
 import com.airbyte.api.models.operations.CreateJobResponse;
 import com.airbyte.api.models.operations.GetJobRequest;
@@ -8,6 +14,7 @@ import com.airbyte.api.models.shared.JobCreateRequest;
 import com.airbyte.api.models.shared.JobResponse;
 import com.airbyte.api.models.shared.JobStatusEnum;
 import com.airbyte.api.models.shared.JobTypeEnum;
+
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
@@ -18,15 +25,11 @@ import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.utils.Await;
 import io.kestra.plugin.airbyte.cloud.AbstractAirbyteCloud;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import org.slf4j.Logger;
-
-import java.time.Duration;
-import java.time.ZonedDateTime;
-import java.util.List;
 
 import static io.kestra.core.utils.Rethrow.throwSupplier;
 
@@ -116,7 +119,8 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
         // wait for end
         JobResponse finalJobResponse = Await.until(
-            throwSupplier(() -> {
+            throwSupplier(() ->
+            {
                 GetJobResponse job = client.jobs().getJob(getJobRequest);
                 this.validate(job.rawResponse());
 

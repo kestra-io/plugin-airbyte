@@ -1,20 +1,5 @@
 package io.kestra.plugin.airbyte.cloud;
 
-import com.airbyte.api.Airbyte;
-import com.airbyte.api.models.shared.SchemeBasicAuth;
-import com.airbyte.api.models.shared.SchemeClientCredentials;
-import com.airbyte.api.models.shared.Security;
-import com.airbyte.api.utils.SpeakeasyHTTPClient;
-import io.kestra.core.models.property.Property;
-import io.kestra.core.models.tasks.Task;
-import io.kestra.core.models.tasks.retrys.Exponential;
-import io.kestra.core.runners.RunContext;
-import io.kestra.core.utils.RetryUtils;
-import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.*;
-import lombok.experimental.SuperBuilder;
-import org.apache.commons.io.IOUtils;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URISyntaxException;
@@ -22,6 +7,24 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+
+import org.apache.commons.io.IOUtils;
+
+import com.airbyte.api.Airbyte;
+import com.airbyte.api.models.shared.SchemeBasicAuth;
+import com.airbyte.api.models.shared.SchemeClientCredentials;
+import com.airbyte.api.models.shared.Security;
+import com.airbyte.api.utils.SpeakeasyHTTPClient;
+
+import io.kestra.core.models.property.Property;
+import io.kestra.core.models.tasks.Task;
+import io.kestra.core.models.tasks.retrys.Exponential;
+import io.kestra.core.runners.RunContext;
+import io.kestra.core.utils.RetryUtils;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 @SuperBuilder
 @ToString
@@ -68,16 +71,20 @@ public abstract class AbstractAirbyteCloud extends Task {
         if (this.token != null) {
             security.withBearerAuth(runContext.render(this.token).as(String.class).orElseThrow());
         } else if (this.clientId != null && this.clientSecret != null) {
-            security.withClientCredentials(new SchemeClientCredentials(
-                runContext.render(this.clientId).as(String.class).orElseThrow(),
-                runContext.render(this.clientSecret).as(String.class).orElseThrow(),
-                runContext.render(this.tokenURL).as(String.class).orElse(DEFAULT_TOKEN_URL)
-            ));
+            security.withClientCredentials(
+                new SchemeClientCredentials(
+                    runContext.render(this.clientId).as(String.class).orElseThrow(),
+                    runContext.render(this.clientSecret).as(String.class).orElseThrow(),
+                    runContext.render(this.tokenURL).as(String.class).orElse(DEFAULT_TOKEN_URL)
+                )
+            );
         } else {
-            security.withBasicAuth(new SchemeBasicAuth(
-                runContext.render(this.username).as(String.class).orElseThrow(),
-                runContext.render(this.password).as(String.class).orElseThrow()
-            ));
+            security.withBasicAuth(
+                new SchemeBasicAuth(
+                    runContext.render(this.username).as(String.class).orElseThrow(),
+                    runContext.render(this.password).as(String.class).orElseThrow()
+                )
+            );
         }
 
         return Airbyte.builder()
@@ -119,8 +126,9 @@ public abstract class AbstractAirbyteCloud extends Task {
 
     protected void validate(HttpResponse<InputStream> response) throws Exception {
         if (response.statusCode() >= 400) {
-            throw new Exception("Failed request with status " + response.statusCode() + " and body " +
-                IOUtils.toString(response.body(), StandardCharsets.UTF_8)
+            throw new Exception(
+                "Failed request with status " + response.statusCode() + " and body " +
+                    IOUtils.toString(response.body(), StandardCharsets.UTF_8)
             );
         }
     }
