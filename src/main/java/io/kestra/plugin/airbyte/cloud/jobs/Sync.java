@@ -18,7 +18,8 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Sync an Airbyte Cloud job."
+    title = "Run an Airbyte Cloud sync",
+    description = "Starts a sync job for an Airbyte Cloud connection. By default, the task waits for completion and emits sync metrics"
 )
 @Plugin(
     examples = {

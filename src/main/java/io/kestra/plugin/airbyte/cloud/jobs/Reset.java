@@ -21,7 +21,8 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Reset an Airbyte Cloud job."
+    title = "Run an Airbyte Cloud reset",
+    description = "Starts a reset job for an Airbyte Cloud connection. By default, the task waits for completion and emits job metrics"
 )
 @Plugin(
     examples = {

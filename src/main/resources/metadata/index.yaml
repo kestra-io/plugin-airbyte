@@ -1,8 +1,8 @@
 group: io.kestra.plugin.airbyte
 name: "airbyte"
 title: "Airbyte"
-description: ""
-body: ""
+description: "Tasks that trigger and monitor Airbyte sync and reset jobs in self-hosted Airbyte and Airbyte Cloud"
+body: "Use this plugin to orchestrate Airbyte connection jobs from Kestra, including starting syncs, running resets, and waiting for job completion. Choose the self-hosted connection tasks or the Airbyte Cloud job tasks based on your Airbyte deployment and authentication model."
 videos: []
 createdBy: "Kestra Core Team"
 managedBy: "Kestra Core Team"

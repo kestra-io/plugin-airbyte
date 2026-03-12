@@ -32,27 +32,48 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @NoArgsConstructor
 public abstract class AbstractAirbyteConnection extends Task {
-    @Schema(title = "The URL of your Airbyte instance.")
+    @Schema(
+        title = "Airbyte API URL",
+        description = "Base URL of the Airbyte instance to call. This value is rendered from the current run context"
+    )
     @NotNull
     private Property<String> url;
 
-    @Schema(title = "Basic authentication username.")
+    @Schema(
+        title = "Basic auth username",
+        description = "Username for Airbyte basic authentication. If both basic auth and a bearer token are configured, basic auth is sent last and takes precedence"
+    )
     private Property<String> username;
 
-    @Schema(title = "Basic authentication password.")
+    @Schema(
+        title = "Basic auth password",
+        description = "Password for Airbyte basic authentication. Store this value in a Secret"
+    )
     private Property<String> password;
 
-    @Schema(title = "API key.")
+    @Schema(
+        title = "Bearer token",
+        description = "Bearer token used for Airbyte API requests. This value is rendered from the current run context"
+    )
     private Property<String> token;
 
-    @Schema(title = "HTTP connection timeout.")
+    @Schema(
+        title = "HTTP timeout",
+        description = "HTTP timeout value for requests to Airbyte. Defaults to 10 seconds"
+    )
     @Builder.Default
     private Property<Duration> httpTimeout = Property.ofValue(Duration.ofSeconds(10));
 
-    @Schema(title = "The HTTP client configuration.")
+    @Schema(
+        title = "HTTP client options",
+        description = "HTTP client configuration applied to Airbyte API requests"
+    )
     protected HttpConfiguration options;
 
-    @Schema(title = "Application credentials.", description = "Applications allow you to generate tokens to access the Airbyte API.")
+    @Schema(
+        title = "Application credentials",
+        description = "Client credentials used to request an Airbyte application access token from `/api/v1/applications/token`. Use this instead of a static token when Airbyte application authentication is enabled"
+    )
     @PluginProperty
     private ApplicationCredentials applicationCredentials;
 
@@ -147,11 +168,17 @@ public abstract class AbstractAirbyteConnection extends Task {
     @Builder
     @Getter
     public static class ApplicationCredentials {
-        @Schema(title = "Client ID.")
+        @Schema(
+            title = "Client ID",
+            description = "Airbyte application client ID"
+        )
         @NotNull
         private Property<String> clientId;
 
-        @Schema(title = "Client Secret.")
+        @Schema(
+            title = "Client secret",
+            description = "Airbyte application client secret. Store this value in a Secret"
+        )
         @NotNull
         private Property<String> clientSecret;
     }

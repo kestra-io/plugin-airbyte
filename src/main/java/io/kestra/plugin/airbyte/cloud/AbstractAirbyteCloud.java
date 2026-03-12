@@ -34,34 +34,39 @@ import lombok.experimental.SuperBuilder;
 public abstract class AbstractAirbyteCloud extends Task {
     public static final String DEFAULT_TOKEN_URL = "https://api.airbyte.com/v1/applications/token";
     @Schema(
-        title = "API key."
+        title = "Bearer token",
+        description = "Bearer token for the Airbyte Cloud API. If this is set, it is used before client credentials or basic auth"
     )
     private Property<String> token;
 
     @Schema(
-        title = "Application Client ID."
+        title = "Client ID",
+        description = "Airbyte application client ID used for client-credentials authentication"
     )
     private Property<String> clientId;
 
     @Schema(
-        title = "Application Client Secret."
+        title = "Client secret",
+        description = "Airbyte application client secret used for client-credentials authentication. Store this value in a Secret"
     )
     private Property<String> clientSecret;
 
     @Schema(
-        title = "Token URL to get an access token from.",
-        description = "See: https://reference.airbyte.com/reference/createaccesstoken"
+        title = "Token URL",
+        description = "Token endpoint used with client credentials. Defaults to `https://api.airbyte.com/v1/applications/token`. See: https://reference.airbyte.com/reference/createaccesstoken"
     )
     @Builder.Default
     private Property<String> tokenURL = Property.ofValue(DEFAULT_TOKEN_URL);
 
     @Schema(
-        title = "BasicAuth authentication username."
+        title = "Basic auth username",
+        description = "Username for Airbyte Cloud basic authentication. Basic auth is used only when no bearer token or client credentials are configured"
     )
     private Property<String> username;
 
     @Schema(
-        title = "BasicAuth authentication password."
+        title = "Basic auth password",
+        description = "Password for Airbyte Cloud basic authentication. Store this value in a Secret"
     )
     private Property<String> password;
 

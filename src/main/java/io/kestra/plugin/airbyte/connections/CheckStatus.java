@@ -35,7 +35,8 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Check status of an Airbyte sync."
+    title = "Wait for an Airbyte job",
+    description = "Polls Airbyte until a job reaches a terminal state, streams attempt logs, and emits sync metrics. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`"
 )
 @Plugin(
     examples = {
@@ -93,10 +94,16 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         JobStatus.SUCCEEDED
     );
 
-    @Schema(title = "The job ID to check status for.")
+    @Schema(
+        title = "Job ID",
+        description = "Airbyte job ID to monitor"
+    )
     private Property<String> jobId;
 
-    @Schema(title = "The maximum total wait duration.")
+    @Schema(
+        title = "Maximum wait duration",
+        description = "Maximum total time to wait for the job to finish. Defaults to 60 minutes"
+    )
     @Builder.Default
     Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
 
@@ -104,7 +111,10 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     @Getter(AccessLevel.NONE)
     private transient Map<Integer, Integer> loggedLine = new HashMap<>();
 
-    @Schema(title = "Specify how often the task should poll for the sync status.")
+    @Schema(
+        title = "Poll frequency",
+        description = "Interval between Airbyte job status checks. Defaults to 1 second"
+    )
     @Builder.Default
     Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
 
@@ -230,7 +240,10 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     @Builder
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
-        @Schema(title = "The final job status.")
+        @Schema(
+            title = "Final job status",
+            description = "Terminal Airbyte job status returned by the task"
+        )
         private final String finalJobStatus;
     }
 }

@@ -1,8 +1,8 @@
 group: io.kestra.plugin.airbyte.connections
 name: "connections"
-title: "Connections"
-description: "This sub-group of plugins contains tasks for using Airbyte. Airbyte is an open-source data integration engine that helps you consolidate your data in your data warehouses, lakes and databases."
-body: ""
+title: "Airbyte Connections"
+description: "Tasks that start and monitor sync jobs on a self-hosted Airbyte instance"
+body: "Use these tasks to trigger a connection sync and optionally wait for the Airbyte job to finish. Set `url` and the required connection or job ID, then configure one supported authentication method such as basic auth, a bearer token, or application credentials."
 videos: []
 createdBy: "Kestra Core Team"
 managedBy: "Kestra Core Team"
