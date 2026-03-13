@@ -2,7 +2,7 @@
 
 ## What
 
-Seamlessly integrate Airbyte connectors into your Kestra workflows. Exposes 13 plugin components (tasks, triggers, and/or conditions).
+Seamlessly integrate Airbyte connectors into your Kestra workflows. Exposes 5 plugin components (tasks, triggers, and/or conditions).
 
 ## Why
 
@@ -39,26 +39,18 @@ Infrastructure dependencies (Docker Compose services):
 
 ### Key Plugin Classes
 
-- `classname=AbstractTrigger`
-- `classname=Reset`
-- `classname=Sync`
-- `classname=Sync`
 - `io.kestra.plugin.airbyte.cloud.jobs.AbstractTrigger`
 - `io.kestra.plugin.airbyte.cloud.jobs.Reset`
 - `io.kestra.plugin.airbyte.cloud.jobs.Sync`
 - `io.kestra.plugin.airbyte.connections.CheckStatus`
 - `io.kestra.plugin.airbyte.connections.Sync`
-- `pkg=io.kestra.plugin.airbyte.cloud.jobs`
-- `pkg=io.kestra.plugin.airbyte.cloud.jobs`
-- `pkg=io.kestra.plugin.airbyte.cloud.jobs`
-- `pkg=io.kestra.plugin.airbyte.connections`
 
 ### Project Structure
 
 ```
 plugin-airbyte/
-├── src/main/java/project/group +/
-├── src/test/java/project/group +/
+├── src/main/java/io/kestra/plugin/airbyte/
+├── src/test/java/io/kestra/plugin/airbyte/
 ├── build.gradle
 └── README.md
 ```
