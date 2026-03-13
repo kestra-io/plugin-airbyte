@@ -49,8 +49,8 @@ Infrastructure dependencies (Docker Compose services):
 
 ```
 plugin-airbyte/
-├── src/main/java/io/kestra/plugin/airbyte/
-├── src/test/java/io/kestra/plugin/airbyte/
+├── src/main/java/io/kestra/plugin/airbyte/models/
+├── src/test/java/io/kestra/plugin/airbyte/models/
 ├── build.gradle
 └── README.md
 ```
