@@ -26,6 +26,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import io.kestra.core.models.annotations.PluginProperty;
 
 @SuperBuilder
 @ToString
@@ -86,6 +87,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         description = "Airbyte connection ID to sync"
     )
     @NotNull
+    @PluginProperty(group = "main")
     private Property<String> connectionId;
 
     @Schema(
@@ -93,6 +95,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         description = "If `true`, wait for the Airbyte job to reach a terminal state before the task completes. Defaults to `true`"
     )
     @Builder.Default
+    @PluginProperty(group = "execution")
     private Property<Boolean> wait = Property.ofValue(true);
 
     @Schema(

@@ -37,24 +37,28 @@ public abstract class AbstractAirbyteConnection extends Task {
         description = "Base URL of the Airbyte instance to call. This value is rendered from the current run context"
     )
     @NotNull
+    @PluginProperty(group = "main")
     private Property<String> url;
 
     @Schema(
         title = "Basic auth username",
         description = "Username for Airbyte basic authentication. If both basic auth and a bearer token are configured, basic auth is sent last and takes precedence"
     )
+    @PluginProperty(group = "connection")
     private Property<String> username;
 
     @Schema(
         title = "Basic auth password",
         description = "Password for Airbyte basic authentication. Store this value in a Secret"
     )
+    @PluginProperty(group = "connection")
     private Property<String> password;
 
     @Schema(
         title = "Bearer token",
         description = "Bearer token used for Airbyte API requests. This value is rendered from the current run context"
     )
+    @PluginProperty(group = "connection")
     private Property<String> token;
 
     @Schema(
@@ -62,19 +66,21 @@ public abstract class AbstractAirbyteConnection extends Task {
         description = "HTTP timeout value for requests to Airbyte. Defaults to 10 seconds"
     )
     @Builder.Default
+    @PluginProperty(group = "execution")
     private Property<Duration> httpTimeout = Property.ofValue(Duration.ofSeconds(10));
 
     @Schema(
         title = "HTTP client options",
         description = "HTTP client configuration applied to Airbyte API requests"
     )
+    @PluginProperty(group = "advanced")
     protected HttpConfiguration options;
 
     @Schema(
         title = "Application credentials",
         description = "Client credentials used to request an Airbyte application access token from `/api/v1/applications/token`. Use this instead of a static token when Airbyte application authentication is enabled"
     )
-    @PluginProperty
+    @PluginProperty(group = "connection")
     private ApplicationCredentials applicationCredentials;
 
     protected <REQ, RES> HttpResponse<RES> request(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder, Class<RES> responseType)
@@ -173,6 +179,7 @@ public abstract class AbstractAirbyteConnection extends Task {
             description = "Airbyte application client ID"
         )
         @NotNull
+        @PluginProperty(group = "main")
         private Property<String> clientId;
 
         @Schema(
@@ -180,6 +187,7 @@ public abstract class AbstractAirbyteConnection extends Task {
             description = "Airbyte application client secret. Store this value in a Secret"
         )
         @NotNull
+        @PluginProperty(group = "main")
         private Property<String> clientSecret;
     }
 }
