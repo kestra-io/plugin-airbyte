@@ -32,6 +32,7 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 import static io.kestra.core.utils.Rethrow.throwSupplier;
+import io.kestra.core.models.annotations.PluginProperty;
 
 @SuperBuilder
 @ToString
@@ -70,6 +71,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         description = "Airbyte Cloud connection ID for the job"
     )
     @NotNull
+    @PluginProperty(group = "main")
     private Property<String> connectionId;
 
     @Schema(

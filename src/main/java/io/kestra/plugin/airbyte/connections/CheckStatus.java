@@ -28,6 +28,7 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 import static io.kestra.core.utils.Rethrow.throwSupplier;
+import io.kestra.core.models.annotations.PluginProperty;
 
 @SuperBuilder
 @ToString
@@ -98,6 +99,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         title = "Job ID",
         description = "Airbyte job ID to monitor"
     )
+    @PluginProperty(group = "advanced")
     private Property<String> jobId;
 
     @Schema(

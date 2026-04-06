@@ -25,6 +25,7 @@ import io.kestra.core.utils.RetryUtils;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import io.kestra.core.models.annotations.PluginProperty;
 
 @SuperBuilder
 @ToString
@@ -37,18 +38,21 @@ public abstract class AbstractAirbyteCloud extends Task {
         title = "Bearer token",
         description = "Bearer token for the Airbyte Cloud API. If this is set, it is used before client credentials or basic auth"
     )
+    @PluginProperty(group = "connection")
     private Property<String> token;
 
     @Schema(
         title = "Client ID",
         description = "Airbyte application client ID used for client-credentials authentication"
     )
+    @PluginProperty(group = "connection")
     private Property<String> clientId;
 
     @Schema(
         title = "Client secret",
         description = "Airbyte application client secret used for client-credentials authentication. Store this value in a Secret"
     )
+    @PluginProperty(group = "connection")
     private Property<String> clientSecret;
 
     @Schema(
@@ -56,18 +60,21 @@ public abstract class AbstractAirbyteCloud extends Task {
         description = "Token endpoint used with client credentials. Defaults to `https://api.airbyte.com/v1/applications/token`. See: https://reference.airbyte.com/reference/createaccesstoken"
     )
     @Builder.Default
+    @PluginProperty(group = "advanced")
     private Property<String> tokenURL = Property.ofValue(DEFAULT_TOKEN_URL);
 
     @Schema(
         title = "Basic auth username",
         description = "Username for Airbyte Cloud basic authentication. Basic auth is used only when no bearer token or client credentials are configured"
     )
+    @PluginProperty(group = "connection")
     private Property<String> username;
 
     @Schema(
         title = "Basic auth password",
         description = "Password for Airbyte Cloud basic authentication. Store this value in a Secret"
     )
+    @PluginProperty(group = "connection")
     private Property<String> password;
 
     protected Airbyte client(RunContext runContext) throws Exception {
