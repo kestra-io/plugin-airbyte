@@ -44,21 +44,21 @@ public abstract class AbstractAirbyteConnection extends Task {
         title = "Basic auth username",
         description = "Username for Airbyte basic authentication. If both basic auth and a bearer token are configured, basic auth is sent last and takes precedence"
     )
-    @PluginProperty(group = "connection")
+    @PluginProperty(secret = true, group = "connection")
     private Property<String> username;
 
     @Schema(
         title = "Basic auth password",
         description = "Password for Airbyte basic authentication. Store this value in a Secret"
     )
-    @PluginProperty(group = "connection")
+    @PluginProperty(group = "connection", secret = true)
     private Property<String> password;
 
     @Schema(
         title = "Bearer token",
         description = "Bearer token used for Airbyte API requests. This value is rendered from the current run context"
     )
-    @PluginProperty(group = "connection")
+    @PluginProperty(secret = true, group = "connection")
     private Property<String> token;
 
     @Schema(
@@ -187,7 +187,7 @@ public abstract class AbstractAirbyteConnection extends Task {
             description = "Airbyte application client secret. Store this value in a Secret"
         )
         @NotNull
-        @PluginProperty(group = "main")
+        @PluginProperty(secret = true, group = "main")
         private Property<String> clientSecret;
     }
 }
