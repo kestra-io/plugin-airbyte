@@ -16,6 +16,7 @@ import com.airbyte.api.models.shared.SchemeClientCredentials;
 import com.airbyte.api.models.shared.Security;
 import com.airbyte.api.utils.SpeakeasyHTTPClient;
 
+import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.models.tasks.retrys.Exponential;
@@ -25,7 +26,6 @@ import io.kestra.core.utils.RetryUtils;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import io.kestra.core.models.annotations.PluginProperty;
 
 @SuperBuilder
 @ToString
@@ -127,7 +127,10 @@ public abstract class AbstractAirbyteCloud extends Task {
             try {
                 return retry
                     .run(
-                        (httpResponse) -> httpResponse.statusCode() == 408,
+                        (httpResponse) -> httpResponse.statusCode() == 408
+                            || httpResponse.statusCode() == 425
+                            || httpResponse.statusCode() == 429
+                            || (httpResponse.statusCode() >= 500 && httpResponse.statusCode() != 501),
                         () -> super.send(request)
                     );
             } catch (Exception e) {
