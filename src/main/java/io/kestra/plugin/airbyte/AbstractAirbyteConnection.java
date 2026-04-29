@@ -70,7 +70,7 @@ public abstract class AbstractAirbyteConnection extends Task {
         description = "Deprecated – use `options` to configure timeouts. This field has no effect."
     )
     @Builder.Default
-    @PluginProperty(group = "execution")
+    @PluginProperty(group = "deprecated")
     private Property<Duration> httpTimeout = Property.ofValue(Duration.ofSeconds(10));
 
     @Schema(
