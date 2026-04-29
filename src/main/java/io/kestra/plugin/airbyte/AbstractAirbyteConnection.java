@@ -1,6 +1,7 @@
 package io.kestra.plugin.airbyte;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -18,7 +19,9 @@ import io.kestra.core.http.client.configurations.HttpConfiguration;
 import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Task;
+import io.kestra.core.models.tasks.retrys.Exponential;
 import io.kestra.core.runners.RunContext;
+import io.kestra.core.utils.RetryUtils;
 import io.kestra.plugin.airbyte.connections.SyncAlreadyRunningException;
 
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -61,9 +64,10 @@ public abstract class AbstractAirbyteConnection extends Task {
     @PluginProperty(secret = true, group = "connection")
     private Property<String> token;
 
+    @Deprecated
     @Schema(
         title = "HTTP timeout",
-        description = "HTTP timeout value for requests to Airbyte. Defaults to 10 seconds"
+        description = "Deprecated – use `options` to configure timeouts. This field has no effect."
     )
     @Builder.Default
     @PluginProperty(group = "execution")
@@ -95,7 +99,7 @@ public abstract class AbstractAirbyteConnection extends Task {
         }
 
         if (this.username != null && this.password != null) {
-            String basicAuthValue = "Basic " + java.util.Base64.getEncoder().encodeToString(
+            var basicAuthValue = "Basic " + java.util.Base64.getEncoder().encodeToString(
                 (runContext.render(this.username).as(String.class).orElseThrow() + ":" +
                     runContext.render(this.password).as(String.class).orElseThrow()).getBytes()
             );
@@ -104,16 +108,65 @@ public abstract class AbstractAirbyteConnection extends Task {
 
         var request = requestBuilder.build();
 
-        try (HttpClient client = new HttpClient(runContext, options)) {
-            return client.request(request, responseType);
-        } catch (IOException e) {
+        try {
+            return this.<HttpResponse<RES>> buildRetry(runContext).runRetryIf(
+                this::isRetryableException,
+                () ->
+                {
+                    try (var client = new HttpClient(runContext, options)) {
+                        return client.request(request, responseType);
+                    } catch (HttpClientResponseException e) {
+                        if (this.isAlreadyRunningError(e)) {
+                            throw new AlreadyRunningWrapper();
+                        }
+                        throw e;
+                    }
+                }
+            );
+        } catch (AlreadyRunningWrapper e) {
+            throw new SyncAlreadyRunningException("A sync is already running");
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Throwable e) {
             throw new RuntimeException("HTTP request failed", e);
-        } catch (HttpClientResponseException e) {
-            if (this.isAlreadyRunningError(e)) {
-                throw new SyncAlreadyRunningException("A sync is already running");
-            }
-            throw new RuntimeException("Request failed with status: " + e.getResponse().getStatus().getCode(), e);
         }
+    }
+
+    private static final class AlreadyRunningWrapper extends RuntimeException {
+        AlreadyRunningWrapper() {
+            super(null, null, true, false);
+        }
+    }
+
+    private boolean isRetryableException(Throwable t) {
+        if (t instanceof SyncAlreadyRunningException || t instanceof AlreadyRunningWrapper) {
+            return false;
+        }
+        if (t instanceof SocketTimeoutException) {
+            return true;
+        }
+        if (t instanceof HttpClientResponseException e) {
+            var code = e.getResponse().getStatus().getCode();
+            return code == 408 || code == 425 || code == 429 || (code >= 500 && code != 501);
+        }
+        if (t instanceof IOException) {
+            return !(t instanceof HttpClientResponseException) &&
+                (t.getCause() instanceof SocketTimeoutException || !(t instanceof HttpClientException));
+        }
+        return false;
+    }
+
+    private <T> RetryUtils.Instance<T, Exception> buildRetry(RunContext runContext) {
+        return RetryUtils.of(
+            Exponential.builder()
+                .delayFactor(2.0)
+                .interval(Duration.ofSeconds(1))
+                .maxInterval(Duration.ofSeconds(15))
+                .maxAttempts(-1)
+                .maxDuration(Duration.ofMinutes(5))
+                .build(),
+            runContext.logger()
+        );
     }
 
     private boolean isAlreadyRunningError(HttpClientResponseException exception) {
@@ -136,11 +189,11 @@ public abstract class AbstractAirbyteConnection extends Task {
 
     private void retrieveApplicationCredentialsToken(RunContext runContext) throws IllegalVariableEvaluationException {
         if (applicationCredentials != null) {
-            final String clientId = runContext.render(this.applicationCredentials.getClientId()).as(String.class).orElseThrow();
-            final String clientSecret = runContext.render(this.applicationCredentials.getClientSecret()).as(String.class).orElseThrow();
+            final var clientId = runContext.render(this.applicationCredentials.getClientId()).as(String.class).orElseThrow();
+            final var clientSecret = runContext.render(this.applicationCredentials.getClientSecret()).as(String.class).orElseThrow();
 
-            HttpRequest.HttpRequestBuilder applicationTokenRequestBuilder = HttpRequest.builder()
-                .uri(URI.create(getUrl() + "/api/v1/applications/token"))
+            var applicationTokenRequestBuilder = HttpRequest.builder()
+                .uri(URI.create(runContext.render(this.url).as(String.class).orElseThrow() + "/api/v1/applications/token"))
                 .method("POST")
                 .body(
                     HttpRequest.JsonRequestBody.builder()
@@ -156,12 +209,22 @@ public abstract class AbstractAirbyteConnection extends Task {
             applicationTokenRequestBuilder.addHeader("Accept", "application/json");
             applicationTokenRequestBuilder.addHeader("Content-Type", "application/json");
 
-            HttpRequest tokenRequest = applicationTokenRequestBuilder.build();
+            var tokenRequest = applicationTokenRequestBuilder.build();
 
             String applicationToken;
-            try (HttpClient client = new HttpClient(runContext, options)) {
-                applicationToken = (String) client.request(tokenRequest, Map.class).getBody().getOrDefault("access_token", null);
-            } catch (HttpClientException | IOException e) {
+            try {
+                applicationToken = this.<String> buildRetry(runContext).runRetryIf(
+                    this::isRetryableException,
+                    () ->
+                    {
+                        try (var client = new HttpClient(runContext, options)) {
+                            return (String) client.request(tokenRequest, Map.class).getBody().getOrDefault("access_token", null);
+                        }
+                    }
+                );
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Throwable e) {
                 throw new RuntimeException(e);
             }
 
