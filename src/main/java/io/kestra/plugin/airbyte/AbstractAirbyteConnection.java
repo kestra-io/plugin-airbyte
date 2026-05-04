@@ -153,6 +153,10 @@ public abstract class AbstractAirbyteConnection extends Task {
             return !(t instanceof HttpClientResponseException) &&
                 (t.getCause() instanceof SocketTimeoutException || !(t instanceof HttpClientException));
         }
+        // HttpClient wraps low-level exceptions (e.g. SocketTimeoutException) in RuntimeException
+        if (t.getCause() != null) {
+            return isRetryableException(t.getCause());
+        }
         return false;
     }
 
