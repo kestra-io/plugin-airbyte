@@ -97,7 +97,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
     @Schema(
         title = "Job ID",
-        description = "Airbyte job ID to monitor"
+        description = "Airbyte job ID to monitor. Required."
     )
     @PluginProperty(group = "advanced")
     private Property<String> jobId;
