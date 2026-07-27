@@ -168,13 +168,28 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     @Value
     @Builder
     public static class Job {
+        @Schema(title = "Job ID", description = "Airbyte Cloud job ID")
         public Long jobId;
+
+        @Schema(title = "Start time", description = "Timestamp when the job started")
         public ZonedDateTime startTime;
+
+        @Schema(title = "Last updated at", description = "Timestamp when the job was last updated")
         public ZonedDateTime lastUpdatedAt;
+
+        @Schema(title = "Job type", description = "Type of job (e.g. SYNC or RESET)")
         public JobTypeEnum jobType;
+
+        @Schema(title = "Status", description = "Terminal job status")
         public JobStatusEnum status;
+
+        @Schema(title = "Duration", description = "Total duration of the job")
         public Duration duration;
+
+        @Schema(title = "Bytes synced", description = "Number of bytes synced by the job")
         public Long bytesSynced;
+
+        @Schema(title = "Rows synced", description = "Number of rows synced by the job")
         public Long rowsSynced;
 
         public static Job of(JobResponse jobResponse) {

@@ -24,6 +24,7 @@ import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobStatus;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 
@@ -97,9 +98,10 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
     @Schema(
         title = "Job ID",
-        description = "Airbyte job ID to monitor"
+        description = "Airbyte job ID to monitor."
     )
-    @PluginProperty(group = "advanced")
+    @NotNull
+    @PluginProperty(group = "main")
     private Property<String> jobId;
 
     @Schema(

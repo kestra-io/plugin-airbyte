@@ -60,7 +60,7 @@ public abstract class AbstractAirbyteCloud extends Task {
         description = "Token endpoint used with client credentials. Defaults to `https://api.airbyte.com/v1/applications/token`. See: https://reference.airbyte.com/reference/createaccesstoken"
     )
     @Builder.Default
-    @PluginProperty(secret = true, group = "advanced")
+    @PluginProperty(group = "advanced")
     private Property<String> tokenURL = Property.ofValue(DEFAULT_TOKEN_URL);
 
     @Schema(

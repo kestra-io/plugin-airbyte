@@ -14,7 +14,9 @@ import io.kestra.core.http.client.HttpClientException;
 import io.kestra.core.http.client.HttpClientRequestException;
 import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.models.annotations.Example;
+import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
+import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
@@ -41,6 +43,7 @@ import io.kestra.core.models.annotations.PluginProperty;
     examples = {
         @Example(
             full = true,
+            title = "Trigger an Airbyte sync and wait for completion",
             code = """
                 id: airbyte_sync
                 namespace: company.team
@@ -72,6 +75,38 @@ import io.kestra.core.models.annotations.PluginProperty;
                     type: io.kestra.plugin.core.trigger.Schedule
                     cron: "*/1 * * * *"
                 """
+        )
+    },
+    metrics = {
+        @Metric(
+            name = "attempts.count",
+            type = Counter.TYPE,
+            unit = "attempt",
+            description = "Number of attempts made during the Airbyte sync (emitted when `wait` is enabled)"
+        ),
+        @Metric(
+            name = "records.committed",
+            type = Counter.TYPE,
+            unit = "record",
+            description = "Number of records successfully committed (emitted when `wait` is enabled)"
+        ),
+        @Metric(
+            name = "records.emitted",
+            type = Counter.TYPE,
+            unit = "record",
+            description = "Number of records emitted during processing (emitted when `wait` is enabled)"
+        ),
+        @Metric(
+            name = "bytes.emitted",
+            type = Counter.TYPE,
+            unit = "byte",
+            description = "Number of bytes emitted during processing (emitted when `wait` is enabled)"
+        ),
+        @Metric(
+            name = "state.emitted",
+            type = Counter.TYPE,
+            unit = "message",
+            description = "Number of state messages emitted (emitted when `wait` is enabled)"
         )
     }
 )
