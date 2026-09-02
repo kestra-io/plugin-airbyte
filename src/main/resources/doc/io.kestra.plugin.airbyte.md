@@ -8,7 +8,7 @@ Trigger and monitor Airbyte syncs from Kestra flows — with separate task packa
 
 **Airbyte Cloud** (`cloud.jobs.*`): set `clientId` and `clientSecret` from your Airbyte Cloud workspace API credentials, or set `token` directly. Basic auth (`username`/`password`) is also supported as a fallback when neither is set.
 
-Store secrets in [secrets](https://kestra.io/docs/concepts/secret) and apply connection properties globally with [plugin defaults](https://kestra.io/docs/workflow-components/plugin-defaults).
+Store secrets in [secrets](https://kestra.io/docs/concepts/secret) and set connection properties on each task.
 
 ## Tasks
 
