@@ -226,6 +226,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                     {
                         if (msg.contains("ERROR[")) {
                             logger.error(msg);
+                        } else if (msg.contains("WARN[")) {
+                            logger.warn(msg);
                         } else if (msg.contains("DEBUG[")) {
                             logger.debug(msg);
                         } else if (msg.contains("TRACE[")) {
