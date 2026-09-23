@@ -12,7 +12,7 @@ import lombok.extern.jackson.Jacksonized;
 @Jacksonized
 @SuperBuilder
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class JobInfo {
-    Job job;
-    List<AttemptInfo> attempts;
+public class JobList {
+    List<JobInfo> jobs;
+    Long totalJobCount;
 }
