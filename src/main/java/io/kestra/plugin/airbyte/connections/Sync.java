@@ -203,8 +203,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             } catch (SyncAlreadyRunningException e) {
                 activeJobId = findActiveSyncJob(runContext, rConnectionId);
                 if (activeJobId.isEmpty()) {
+                    if (policy == OnActiveSync.SKIP) {
+                        return skippedOutput();
+                    }
                     throw new IllegalStateException(
-                        "A non-sync job (reset/clear) is running for connection " + rConnectionId + "; retry once it completes",
+                        "Airbyte reported a job already running for connection " + rConnectionId + ", but no active sync job was found; retry the task",
                         e
                     );
                 }
@@ -264,13 +267,17 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             case FAIL -> throw new SyncAlreadyRunningException(
                 "A sync is already running for connection " + connectionId + " (job " + jobId + ")"
             );
-            case SKIP -> Output.builder()
-                .alreadyRunning(true)
-                .adopted(false)
-                .jobId(null)
-                .build();
+            case SKIP -> skippedOutput();
             case ADOPT -> null;
         };
+    }
+
+    private static Output skippedOutput() {
+        return Output.builder()
+            .alreadyRunning(true)
+            .adopted(false)
+            .jobId(null)
+            .build();
     }
 
     private Long triggerSync(RunContext runContext, String connectionId) throws Exception {

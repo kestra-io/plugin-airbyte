@@ -17,6 +17,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
@@ -268,7 +269,52 @@ class SyncRetryTest {
             .build();
 
         var exception = assertThrows(IllegalStateException.class, () -> task.run(runContext));
-        assertThat(exception.getMessage(), is("A non-sync job (reset/clear) is running for connection conn-reset-conflict; retry once it completes"));
+        assertThat(exception.getMessage(), is("Airbyte reported a job already running for connection conn-reset-conflict, but no active sync job was found; retry the task"));
+
+        verify(exactly(1), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
+    }
+
+    @Test
+    void skips_when_conflict_is_caused_by_a_non_sync_job_and_onActiveSync_is_SKIP(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubApplicationToken();
+
+        stubFor(
+            post(urlPathMatching("/api/v1/jobs/list/?"))
+                .willReturn(okJson("""
+                    { "jobs": [], "totalJobCount": 0 }
+                    """))
+        );
+
+        stubFor(
+            post(urlPathMatching("/api/v1/connections/sync/?"))
+                .willReturn(aResponse().withStatus(409).withBody("""
+                    {
+                      "message": "A sync is already running for this connection"
+                    }
+                    """))
+        );
+
+        var runContext = runContextFactory.of(Map.of());
+
+        var task = Sync.builder()
+            .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .applicationCredentials(
+                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                    .clientId(Property.ofValue("client-id"))
+                    .clientSecret(Property.ofValue("client-secret"))
+                    .build()
+            )
+            .connectionId(Property.ofValue("conn-reset-conflict-skip"))
+            .failOnActiveSync(Property.ofValue(false))
+            .wait(Property.ofValue(false))
+            .build();
+
+        var out = task.run(runContext);
+
+        assertThat(out, notNullValue());
+        assertThat(out.getAlreadyRunning(), is(true));
+        assertThat(out.getAdopted(), is(false));
+        assertThat(out.getJobId(), is(nullValue()));
 
         verify(exactly(1), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
     }
