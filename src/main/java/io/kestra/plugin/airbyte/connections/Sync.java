@@ -2,17 +2,17 @@ package io.kestra.plugin.airbyte.connections;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import org.slf4j.Logger;
 
+import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.http.HttpResponse;
 import io.kestra.core.http.client.HttpClientException;
-import io.kestra.core.http.client.HttpClientRequestException;
-import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
@@ -22,6 +22,7 @@ import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
 import io.kestra.plugin.airbyte.models.JobInfo;
+import io.kestra.plugin.airbyte.models.JobList;
 import io.kestra.plugin.airbyte.models.JobStatus;
 
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -37,7 +38,7 @@ import io.kestra.core.models.annotations.PluginProperty;
 @NoArgsConstructor
 @Schema(
     title = "Run an Airbyte connection sync",
-    description = "Starts a sync for an Airbyte connection and, by default, waits for the job to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`"
+    description = "Starts a sync for an Airbyte connection and, by default, waits for the job to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`. If a sync is already running for the connection, the task adopts it and polls it to completion instead of failing or blindly re-triggering — see `onActiveSync`"
 )
 @Plugin(
     examples = {
@@ -75,6 +76,21 @@ import io.kestra.core.models.annotations.PluginProperty;
                     type: io.kestra.plugin.core.trigger.Schedule
                     cron: "*/1 * * * *"
                 """
+        ),
+        @Example(
+            full = true,
+            title = "Fail immediately instead of adopting an already running sync",
+            code = """
+                id: airbyte_sync_fail_on_active
+                namespace: company.team
+
+                tasks:
+                  - id: sync
+                    type: io.kestra.plugin.airbyte.connections.Sync
+                    url: http://localhost:8080
+                    connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd
+                    onActiveSync: FAIL
+                """
         )
     },
     metrics = {
@@ -111,10 +127,10 @@ import io.kestra.core.models.annotations.PluginProperty;
     }
 )
 public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync.Output> {
-    private static final List<JobStatus> ENDED_JOB_STATUS = List.of(
-        JobStatus.FAILED,
-        JobStatus.CANCELLED,
-        JobStatus.SUCCEEDED
+    private static final List<JobStatus> ACTIVE_JOB_STATUS = List.of(
+        JobStatus.PENDING,
+        JobStatus.RUNNING,
+        JobStatus.INCOMPLETE
     );
 
     @Schema(
@@ -135,7 +151,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
     @Schema(
         title = "Maximum wait duration",
-        description = "Maximum total time to wait when `wait` is enabled. Defaults to 60 minutes"
+        description = "Maximum total time to wait when `wait` is enabled. Defaults to 60 minutes. When a job is adopted from an already running sync, this duration is counted from the moment it is adopted, not from the job's actual start time"
     )
     @Builder.Default
     Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
@@ -148,55 +164,67 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
 
     @Schema(
-        title = "Fail on active sync",
-        description = "If `true`, fail when Airbyte reports that a sync is already running for the connection. If `false`, the task succeeds with `alreadyRunning` set to `true`"
+        title = "Behavior when a sync is already running",
+        description = """
+            Controls what happens when a sync is already running for this connection:
+            - `ADOPT` (default): attach to the in-flight job and poll it to completion instead of triggering a new sync.
+            - `FAIL`: fail the task immediately.
+            - `SKIP`: succeed immediately without waiting, with `alreadyRunning` set to `true` and no `jobId`.
+            """
     )
     @Builder.Default
-    Property<Boolean> failOnActiveSync = Property.ofValue(true);
+    @PluginProperty(group = "execution")
+    private Property<OnActiveSync> onActiveSync = Property.ofValue(OnActiveSync.ADOPT);
+
+    @Deprecated
+    @Schema(
+        title = "Fail on active sync",
+        description = "Deprecated – use `onActiveSync` instead. When explicitly set, it overrides `onActiveSync`: `true` behaves like `onActiveSync: FAIL`, `false` behaves like `onActiveSync: SKIP`"
+    )
+    @PluginProperty(group = "deprecated")
+    private Property<Boolean> failOnActiveSync;
 
     @Override
     public Sync.Output run(RunContext runContext) throws Exception {
         Logger logger = runContext.logger();
-        HttpResponse<JobInfo> syncResponse;
+        String rConnectionId = runContext.render(this.connectionId).as(String.class).orElseThrow();
+        OnActiveSync policy = resolveOnActiveSyncPolicy(runContext);
 
-        try {
-            HttpRequest.HttpRequestBuilder syncRequest = HttpRequest.builder()
-                .uri(URI.create(runContext.render(getUrl()).as(String.class).orElseThrow() + "/api/v1/connections/sync/"))
-                .method("POST")
-                .addHeader("Accept-Encoding", "identity")
-                .body(
-                    HttpRequest.JsonRequestBody.builder()
-                        .content(Map.of("connectionId", runContext.render(this.connectionId).as(String.class).orElseThrow()))
-                        .build()
-                );
+        Optional<Long> activeJobId = findActiveSyncJob(runContext, rConnectionId);
+        boolean adopted = activeJobId.isPresent();
+        Long jobId;
 
-            syncResponse = this.request(runContext, syncRequest, JobInfo.class);
-        } catch (HttpClientRequestException | HttpClientResponseException | SyncAlreadyRunningException | RuntimeException e) {
-            if (e.getMessage() != null && e.getMessage().contains("A sync is already running")) {
-                if (runContext.render(this.failOnActiveSync).as(Boolean.class).orElseThrow()) {
-                    throw e;
-                } else {
-                    return Output.builder()
-                        .alreadyRunning(true)
-                        .jobId(null)
-                        .build();
+        if (adopted) {
+            jobId = activeJobId.get();
+        } else {
+            try {
+                jobId = triggerSync(runContext, rConnectionId);
+            } catch (SyncAlreadyRunningException e) {
+                activeJobId = findActiveSyncJob(runContext, rConnectionId);
+                if (activeJobId.isEmpty()) {
+                    throw new IllegalStateException(
+                        "A non-sync job (reset/clear) is running for connection " + rConnectionId + "; retry once it completes",
+                        e
+                    );
                 }
+                adopted = true;
+                jobId = activeJobId.get();
             }
-            throw e;
-        } catch (HttpClientException e) {
-            throw new RuntimeException("Request failed with error: " + e.getMessage(), e);
         }
 
-        JobInfo jobInfoRead = Optional.ofNullable(syncResponse.getBody())
-            .orElseThrow(() -> new IllegalStateException("Missing body on trigger"));
-
-        logger.info("Job status {} with response: {}", syncResponse.getStatus(), jobInfoRead);
-        Long jobId = jobInfoRead.getJob().getId();
+        if (adopted) {
+            Output policyOutput = applyOnActiveSyncPolicy(policy, rConnectionId, jobId);
+            if (policyOutput != null) {
+                return policyOutput;
+            }
+            logger.info("A sync is already running for connection {}, adopting job {}", rConnectionId, jobId);
+        }
 
         if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
             return Output.builder()
-                .alreadyRunning(false)
                 .jobId(jobId)
+                .alreadyRunning(adopted)
+                .adopted(adopted)
                 .build();
         }
 
@@ -215,8 +243,90 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
         return Output.builder()
             .jobId(jobId)
-            .alreadyRunning(false)
+            .alreadyRunning(adopted)
+            .adopted(adopted)
             .build();
+    }
+
+    private OnActiveSync resolveOnActiveSyncPolicy(RunContext runContext) throws IllegalVariableEvaluationException {
+        if (this.failOnActiveSync != null) {
+            Boolean legacy = runContext.render(this.failOnActiveSync).as(Boolean.class).orElse(null);
+            if (legacy != null) {
+                return legacy ? OnActiveSync.FAIL : OnActiveSync.SKIP;
+            }
+        }
+        return runContext.render(this.onActiveSync).as(OnActiveSync.class).orElse(OnActiveSync.ADOPT);
+    }
+
+    private Output applyOnActiveSyncPolicy(OnActiveSync policy, String connectionId, Long jobId) throws SyncAlreadyRunningException {
+        return switch (policy) {
+            case FAIL -> throw new SyncAlreadyRunningException(
+                "A sync is already running for connection " + connectionId + " (job " + jobId + ")"
+            );
+            case SKIP -> Output.builder()
+                .alreadyRunning(true)
+                .adopted(false)
+                .jobId(null)
+                .build();
+            case ADOPT -> null;
+        };
+    }
+
+    private Long triggerSync(RunContext runContext, String connectionId) throws Exception {
+        HttpRequest.HttpRequestBuilder syncRequest = HttpRequest.builder()
+            .uri(URI.create(runContext.render(getUrl()).as(String.class).orElseThrow() + "/api/v1/connections/sync/"))
+            .method("POST")
+            .addHeader("Accept-Encoding", "identity")
+            .body(
+                HttpRequest.JsonRequestBody.builder()
+                    .content(Map.of("connectionId", connectionId))
+                    .build()
+            );
+
+        HttpResponse<JobInfo> syncResponse;
+        try {
+            syncResponse = this.request(runContext, syncRequest, JobInfo.class);
+        } catch (HttpClientException e) {
+            throw new RuntimeException("Request failed with error: " + e.getMessage(), e);
+        }
+
+        JobInfo jobInfoRead = Optional.ofNullable(syncResponse.getBody())
+            .orElseThrow(() -> new IllegalStateException("Missing body on trigger"));
+
+        runContext.logger().info("Job status {} with response: {}", syncResponse.getStatus(), jobInfoRead);
+        return jobInfoRead.getJob().getId();
+    }
+
+    private Optional<Long> findActiveSyncJob(RunContext runContext, String connectionId) throws Exception {
+        HttpRequest.HttpRequestBuilder listRequest = HttpRequest.builder()
+            .uri(URI.create(runContext.render(getUrl()).as(String.class).orElseThrow() + "/api/v1/jobs/list"))
+            .method("POST")
+            .addHeader("Accept-Encoding", "identity")
+            .body(
+                HttpRequest.JsonRequestBody.builder()
+                    .content(Map.of(
+                        "configTypes", List.of("sync"),
+                        "configId", connectionId,
+                        "pagination", Map.of("pageSize", 5, "rowOffset", 0)
+                    ))
+                    .build()
+            );
+
+        HttpResponse<JobList> listResponse = this.request(runContext, listRequest, JobList.class);
+
+        return Optional.ofNullable(listResponse.getBody())
+            .map(JobList::getJobs)
+            .orElseGet(List::of)
+            .stream()
+            .filter(jobInfo -> jobInfo.getJob() != null && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus()))
+            .map(jobInfo -> jobInfo.getJob().getId())
+            .max(Comparator.naturalOrder());
+    }
+
+    public enum OnActiveSync {
+        ADOPT,
+        FAIL,
+        SKIP
     }
 
     @Builder
@@ -224,14 +334,20 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Job ID",
-            description = "Airbyte job ID created by the sync request"
+            description = "Airbyte job ID for the sync. Set for every outcome except `onActiveSync: SKIP`, whether the job was newly triggered or adopted from an already running sync"
         )
         private final Long jobId;
 
         @Schema(
             title = "Already running",
-            description = "Whether Airbyte reported that a sync was already running for the connection"
+            description = "Whether a sync was already running for the connection, either adopted (`onActiveSync: ADOPT`) or skipped (`onActiveSync: SKIP`)"
         )
         private final Boolean alreadyRunning;
+
+        @Schema(
+            title = "Adopted",
+            description = "Whether `jobId` refers to a sync that was already running and got adopted, rather than a sync newly triggered by this task"
+        )
+        private final Boolean adopted;
     }
 }
