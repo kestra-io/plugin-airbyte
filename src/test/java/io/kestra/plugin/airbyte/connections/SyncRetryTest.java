@@ -121,7 +121,7 @@ class SyncRetryTest {
                 .willReturn(okJson("""
                     {
                       "jobs": [
-                        { "job": { "id": 789, "status": "running" }, "attempts": [] }
+                        { "job": { "id": 789, "configType": "sync", "status": "running" }, "attempts": [] }
                       ],
                       "totalJobCount": 1
                     }
@@ -178,7 +178,7 @@ class SyncRetryTest {
                 .willReturn(okJson("""
                     {
                       "jobs": [
-                        { "job": { "id": 890, "status": "running" }, "attempts": [] }
+                        { "job": { "id": 890, "configType": "sync", "status": "running" }, "attempts": [] }
                       ],
                       "totalJobCount": 1
                     }

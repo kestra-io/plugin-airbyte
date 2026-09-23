@@ -155,7 +155,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         stubJobsList("""
             {
               "jobs": [
-                { "job": { "id": 200, "status": "running" }, "attempts": [] }
+                { "job": { "id": 200, "configType": "sync", "status": "running" }, "attempts": [] }
               ],
               "totalJobCount": 1
             }
@@ -207,7 +207,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         stubJobsList("""
             {
               "jobs": [
-                { "job": { "id": 201, "status": "pending" }, "attempts": [] }
+                { "job": { "id": 201, "configType": "sync", "status": "pending" }, "attempts": [] }
               ],
               "totalJobCount": 1
             }
@@ -243,7 +243,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         stubJobsList("""
             {
               "jobs": [
-                { "job": { "id": 202, "status": "running" }, "attempts": [] }
+                { "job": { "id": 202, "configType": "sync", "status": "running" }, "attempts": [] }
               ],
               "totalJobCount": 1
             }
@@ -275,7 +275,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         stubJobsList("""
             {
               "jobs": [
-                { "job": { "id": 203, "status": "running" }, "attempts": [] }
+                { "job": { "id": 203, "configType": "sync", "status": "running" }, "attempts": [] }
               ],
               "totalJobCount": 1
             }
@@ -311,7 +311,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         stubJobsList("""
             {
               "jobs": [
-                { "job": { "id": 204, "status": "running" }, "attempts": [] }
+                { "job": { "id": 204, "configType": "sync", "status": "running" }, "attempts": [] }
               ],
               "totalJobCount": 1
             }
@@ -358,7 +358,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
                 .willReturn(okJson("""
                     {
                       "jobs": [
-                        { "job": { "id": 205, "status": "running" }, "attempts": [] }
+                        { "job": { "id": 205, "configType": "sync", "status": "running" }, "attempts": [] }
                       ],
                       "totalJobCount": 1
                     }
@@ -396,5 +396,75 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         assertThat(out, notNullValue());
         assertThat(out.getAlreadyRunning(), is(true));
         assertThat(out.getJobId(), is(nullValue()));
+    }
+
+    @Test
+    void run_fails_when_jobs_list_fails_instead_of_falling_back_to_a_blind_trigger(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        stubApplicationToken();
+
+        // A non-retryable status (not 408/425/429/5xx-except-501) fails immediately, keeping the test fast while
+        // still exercising the "jobs-list failure must not fall back to a blind trigger" path: a 5xx that exhausts
+        // retries propagates the exact same way once the retry budget in AbstractAirbyteConnection#request is spent.
+        stubFor(
+            post(urlPathMatching("/api/v1/jobs/list/?"))
+                .withHeader("Authorization", equalTo("Bearer ey.mock.local"))
+                .willReturn(aResponse().withStatus(400).withBody("""
+                    { "message": "boom" }
+                    """))
+        );
+
+        RunContext runContext = runContextFactory.of(Map.of());
+
+        Sync task = Sync.builder()
+            .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .applicationCredentials(
+                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                    .clientId(Property.ofValue("local-client"))
+                    .clientSecret(Property.ofValue("local-secret"))
+                    .build()
+            )
+            .connectionId(Property.ofValue(connectionId))
+            .wait(Property.ofValue(false))
+            .build();
+
+        assertThrows(RuntimeException.class, () -> task.run(runContext));
+
+        verify(exactly(0), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
+    }
+
+    @Test
+    void run_adopts_highest_job_id_when_multiple_active_jobs_are_returned(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubApplicationToken();
+        stubJobsList("""
+            {
+              "jobs": [
+                { "job": { "id": 300, "configType": "sync", "status": "pending" }, "attempts": [] },
+                { "job": { "id": 301, "configType": "sync", "status": "running" }, "attempts": [] }
+              ],
+              "totalJobCount": 2
+            }
+            """);
+
+        RunContext runContext = runContextFactory.of(Map.of());
+
+        Sync task = Sync.builder()
+            .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .applicationCredentials(
+                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                    .clientId(Property.ofValue("local-client"))
+                    .clientSecret(Property.ofValue("local-secret"))
+                    .build()
+            )
+            .connectionId(Property.ofValue(connectionId))
+            .wait(Property.ofValue(false))
+            .build();
+
+        var out = task.run(runContext);
+
+        assertThat(out.getJobId(), is(301L));
+        assertThat(out.getAdopted(), is(true));
+        assertThat(out.getAlreadyRunning(), is(true));
+
+        verify(exactly(0), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
     }
 }

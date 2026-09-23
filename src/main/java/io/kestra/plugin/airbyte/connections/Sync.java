@@ -21,6 +21,7 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
+import io.kestra.plugin.airbyte.models.JobConfigType;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobList;
 import io.kestra.plugin.airbyte.models.JobStatus;
@@ -318,7 +319,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .map(JobList::getJobs)
             .orElseGet(List::of)
             .stream()
-            .filter(jobInfo -> jobInfo.getJob() != null && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus()))
+            .filter(jobInfo -> jobInfo.getJob() != null
+                // Defense-in-depth: the request above already restricts to "sync" via `configTypes`, but a server
+                // that ignores/mis-applies that filter must not be able to get a reset/clear job silently adopted.
+                && jobInfo.getJob().getConfigType() == JobConfigType.SYNC
+                && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus()))
             .map(jobInfo -> jobInfo.getJob().getId())
             .max(Comparator.naturalOrder());
     }
