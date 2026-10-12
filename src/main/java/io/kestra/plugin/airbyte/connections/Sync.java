@@ -25,6 +25,7 @@ import io.kestra.plugin.airbyte.models.JobConfigType;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobList;
 import io.kestra.plugin.airbyte.models.JobStatus;
+import io.kestra.plugin.airbyte.models.SyncMetadata;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
@@ -55,6 +56,10 @@ import io.kestra.core.models.annotations.PluginProperty;
                     type: io.kestra.plugin.airbyte.connections.Sync
                     url: http://localhost:8080
                     connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd
+
+                  - id: log_rows_synced
+                    type: io.kestra.plugin.core.log.Log
+                    message: "Rows synced: {{ outputs.sync.metadata.rowsSynced }}"
                 """
         ),
         @Example(
@@ -243,12 +248,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .jobId(Property.ofValue(jobId.toString()))
             .build();
 
-        checkStatus.run(runContext);
+        var checkStatusOutput = checkStatus.run(runContext);
 
         return Output.builder()
             .jobId(jobId)
             .alreadyRunning(adopted)
             .adopted(adopted)
+            .metadata(checkStatusOutput.getMetadata())
             .build();
     }
 
@@ -361,5 +367,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             description = "Whether `jobId` refers to a sync that was already running and got adopted, rather than a sync newly triggered by this task"
         )
         private final Boolean adopted;
+
+        @Schema(
+            title = "Sync metadata",
+            description = "Rows synced and source and destination tables affected by the completed Airbyte job. Only available when `wait` is enabled"
+        )
+        private final SyncMetadata metadata;
     }
 }

@@ -20,8 +20,10 @@ import io.kestra.core.utils.Await;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
 import io.kestra.plugin.airbyte.models.Attempt;
 import io.kestra.plugin.airbyte.models.AttemptInfo;
+import io.kestra.plugin.airbyte.models.AttemptStatus;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobStatus;
+import io.kestra.plugin.airbyte.models.SyncMetadata;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
@@ -157,7 +159,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                     }
 
                     // Handle case of failed attempt, Airbyte started a new attempt
-                    if (jobStatus.getAttempts().size() > attemptCounter.get()) {
+                    if (attempts(jobStatus).size() > attemptCounter.get()) {
                         logger.warn("Previous attempt failed, creating a new sync attempt ...");
                         attemptCounter.getAndIncrement();
                     }
@@ -169,16 +171,17 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         );
 
         // failure message
-        finalJobStatus.getAttempts()
+        attempts(finalJobStatus)
             .stream()
             .map(AttemptInfo::getAttempt)
+            .filter(Objects::nonNull)
             .map(Attempt::getFailureSummary)
             .filter(Objects::nonNull)
             .forEach(attemptFailureSummary -> logger.warn("Failure with reason {}", attemptFailureSummary));
 
         // handle failed attempt
         if (!finalJobStatus.getJob().getStatus().equals(JobStatus.SUCCEEDED)) {
-            int attemptCount = finalJobStatus.getAttempts().size();
+            int attemptCount = attempts(finalJobStatus).size();
             throw new Exception(
                 "Failed run with status '" + finalJobStatus.getJob().getStatus() +
                     "' after " + attemptCount + " attempt(s) : " + finalJobStatus
@@ -186,13 +189,15 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         }
 
         // metrics
-        runContext.metric(Counter.of("attempts.count", finalJobStatus.getAttempts().size()));
+        runContext.metric(Counter.of("attempts.count", attempts(finalJobStatus).size()));
 
-        finalJobStatus.getAttempts()
+        attempts(finalJobStatus)
             .stream()
             .map(AttemptInfo::getAttempt)
+            .filter(Objects::nonNull)
             .filter(attempt -> attempt.getStreamStats() != null)
             .flatMap(attempt -> attempt.getStreamStats().stream())
+            .filter(streamStats -> streamStats != null && streamStats.getStats() != null)
             .forEach(o ->
             {
                 if (o.getStats().getRecordsCommitted() != null) {
@@ -211,13 +216,83 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
         return Output.builder()
             .finalJobStatus(finalJobStatus.getJob().getStatus().toString())
+            .metadata(syncMetadata(finalJobStatus))
             .build();
+    }
+
+    private static SyncMetadata syncMetadata(JobInfo jobInfo) {
+        var source = new LinkedHashMap<StreamKey, Long>();
+        var destination = new LinkedHashMap<StreamKey, Long>();
+        var successfulAttempts = attempts(jobInfo).stream()
+            .map(AttemptInfo::getAttempt)
+            .filter(Objects::nonNull)
+            .filter(attempt -> attempt.getStatus() == AttemptStatus.SUCCEEDED)
+            .toList();
+
+        successfulAttempts.stream()
+            .flatMap(attempt -> Optional.ofNullable(attempt.getStreamStats()).orElseGet(List::of).stream())
+            .filter(Objects::nonNull)
+            .forEach(streamStats ->
+            {
+                var streamKey = new StreamKey(streamStats.getStreamName(), streamStats.getStreamNamespace());
+                if (streamStats.getStats() == null) {
+                    source.putIfAbsent(streamKey, null);
+                    destination.putIfAbsent(streamKey, null);
+                    return;
+                }
+
+                merge(source, streamKey, streamStats.getStats().getRecordsEmitted());
+                merge(destination, streamKey, streamStats.getStats().getRecordsCommitted());
+            });
+
+        var committedRows = destination.values().stream()
+            .filter(Objects::nonNull)
+            .reduce(Long::sum);
+        var rowsSynced = committedRows.orElseGet(() ->
+            successfulAttempts.stream()
+                .map(Attempt::getRecordsSynced)
+                .filter(Objects::nonNull)
+                .reduce(0L, Long::sum)
+        );
+
+        return SyncMetadata.builder()
+            .rowsSynced(rowsSynced)
+            .source(toTables(source))
+            .destination(toTables(destination))
+            .build();
+    }
+
+    private static void merge(Map<StreamKey, Long> tables, StreamKey streamKey, Long rows) {
+        if (rows == null) {
+            tables.putIfAbsent(streamKey, null);
+        } else {
+            tables.merge(streamKey, rows, Long::sum);
+        }
+    }
+
+    private static List<SyncMetadata.Table> toTables(Map<StreamKey, Long> tables) {
+        return tables.entrySet().stream()
+            .map(
+                entry -> SyncMetadata.Table.builder()
+                    .name(entry.getKey().name())
+                    .namespace(entry.getKey().namespace())
+                    .rows(entry.getValue())
+                    .build()
+            )
+            .toList();
+    }
+
+    private static List<AttemptInfo> attempts(JobInfo jobInfo) {
+        return Optional.ofNullable(jobInfo.getAttempts()).orElseGet(List::of);
+    }
+
+    private record StreamKey(String name, String namespace) {
     }
 
     private void sendLog(Logger logger, JobInfo job) {
         int index = 0;
 
-        for (AttemptInfo attempt : job.getAttempts()) {
+        for (AttemptInfo attempt : attempts(job)) {
             if (!loggedLine.containsKey(index) || attempt.getLogs().getLogLines().size() > loggedLine.get(index)) {
                 attempt.getLogs()
                     .getLogLines()
@@ -251,5 +326,11 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             description = "Terminal Airbyte job status returned by the task"
         )
         private final String finalJobStatus;
+
+        @Schema(
+            title = "Sync metadata",
+            description = "Rows synced and source and destination tables affected by the completed Airbyte job"
+        )
+        private final SyncMetadata metadata;
     }
 }

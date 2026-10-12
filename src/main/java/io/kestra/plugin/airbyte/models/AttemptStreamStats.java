@@ -9,5 +9,6 @@ import lombok.extern.jackson.Jacksonized;
 @SuperBuilder
 public class AttemptStreamStats {
     String streamName;
+    String streamNamespace;
     AttemptStats stats;
 }
