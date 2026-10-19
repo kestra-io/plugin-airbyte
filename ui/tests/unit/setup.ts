@@ -97,3 +97,23 @@ if (typeof window !== "undefined") {
 if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
 }
+
+// Monaco (loaded through the design system) listens for clicks and calls navigator.clipboard.write,
+// which jsdom lacks: stub it so click-based stories don't raise an unhandled error.
+if (typeof navigator !== "undefined" && !navigator.clipboard) {
+    Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+            write: () => Promise.resolve(),
+            writeText: () => Promise.resolve(),
+            read: () => Promise.resolve([]),
+            readText: () => Promise.resolve(""),
+        },
+    });
+}
+
+if (typeof window !== "undefined" && !("ClipboardItem" in window)) {
+    (window as unknown as Record<string, unknown>).ClipboardItem = class {
+        constructor(public items: Record<string, unknown>) {}
+    };
+}
