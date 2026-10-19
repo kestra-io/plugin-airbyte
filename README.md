@@ -60,6 +60,12 @@ Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`.
 
 A job that does not end `SUCCEEDED` fails the task but keeps these outputs, so `errors` and `finally` branches and `allowFailure: true` can read them. With `onPartialSuccess: WARNING`, a `FAILED` job that committed records ends in `WARNING` instead. `internalMessage` and stack traces from Airbyte are never logged or returned, and `externalMessage` is truncated to 2 KiB. `finalJobStatus` is deprecated: use `job.status`.
 
+### Connection snapshot, job link and assets
+
+`Sync` and `CheckStatus` also return `connection` (source and destination connector types, workspace, stream count), `connectionSnapshot` (JSON file in internal storage) and `jobUrl` (link to the job logs in the Airbyte web app, built from `webappUrl`, which defaults to `url`). They come from Airbyte's config API, and connector configurations are never read. If the credentials cannot read connections, sources and destinations, the task logs a warning and these outputs stay `null`.
+
+With assets enabled (Enterprise Edition only), each replicated stream that committed records is emitted as a table asset `io.kestra.plugin.ee.assets.Table` with id `<destinationId>.<namespace>.<table>` (the namespace segment is left out when it cannot be resolved without the destination configuration) and the source stream as its input. Ids use Airbyte's logical names, which can differ from the physical table names, and do not match the ids emitted by other plugins.
+
 ## Documentation
 * Full documentation can be found under: [kestra.io/docs](https://kestra.io/docs)
 * Documentation for developing a plugin is included in the [Plugin Developer Guide](https://kestra.io/docs/plugin-developer-guide/)

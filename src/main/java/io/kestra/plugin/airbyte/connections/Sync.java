@@ -28,6 +28,9 @@ import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.RunnableTaskException;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
+import io.kestra.plugin.airbyte.ConnectionSnapshots;
+import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
+import io.kestra.plugin.airbyte.models.ConnectionSummary;
 import io.kestra.plugin.airbyte.models.JobConfigType;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobList;
@@ -52,7 +55,9 @@ import io.kestra.core.models.annotations.PluginProperty;
     description = """
         Starts a sync for an Airbyte connection and, by default, waits for the job to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`. If a sync is already running for the connection, the task adopts it and polls it to completion instead of failing or blindly re-triggering — see `onActiveSync`.
 
-        When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records
+        When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records.
+
+        The task also exposes the `connection` that ran the job, a `connectionSnapshot` file (connector configurations are never included) and a `jobUrl` to the job logs in the Airbyte web app. When Kestra runs with assets enabled (Enterprise Edition), each replicated stream that committed records is emitted as a table asset with the source stream as its input
         """
 )
 @Plugin(
@@ -132,6 +137,7 @@ import io.kestra.core.models.annotations.PluginProperty;
                     message: |
                       Airbyte job {{ outputs.sync.jobId }} ended {{ outputs.sync.job.status }}:
                       {{ outputs.sync.job.failures[0].externalMessage }}
+                      Logs: {{ outputs.sync.jobUrl }}
                 """
         )
     },
@@ -296,16 +302,15 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             logger.info("A sync is already running for connection {}, adopting job {}", rConnectionId, jobId);
         }
 
+        var snapshot = ConnectionSnapshots.fetch(this, runContext, rConnectionId).orElse(null);
+
         if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
-            return Output.builder()
-                .jobId(jobId)
-                .alreadyRunning(adopted)
-                .adopted(adopted)
-                .build();
+            return notWaitingOutput(runContext, jobId, adopted, snapshot);
         }
 
         CheckStatus checkStatus = CheckStatus.builder()
             .url(getUrl())
+            .webappUrl(getWebappUrl())
             .username(getUsername())
             .password(getPassword())
             .token(getToken())
@@ -317,7 +322,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .build();
 
         try {
-            return fromCheckStatus(jobId, adopted, checkStatus.run(runContext));
+            return fromCheckStatus(jobId, adopted, checkStatus.run(runContext, snapshot, false));
         } catch (RunnableTaskException e) {
             if (e.getOutput() instanceof CheckStatus.Output failed) {
                 throw new RunnableTaskException(e.getMessage(), e, fromCheckStatus(jobId, adopted, failed));
@@ -334,8 +339,34 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .job(checkStatusOutput.getJob())
             .attempts(checkStatusOutput.getAttempts())
             .metadata(checkStatusOutput.getMetadata())
+            .connection(checkStatusOutput.getConnection())
+            .connectionSnapshot(checkStatusOutput.getConnectionSnapshot())
+            .jobUrl(checkStatusOutput.getJobUrl())
             .state(checkStatusOutput.finalState().orElse(null))
             .build();
+    }
+
+    private Output notWaitingOutput(RunContext runContext, Long jobId, boolean adopted, ConnectionSnapshot snapshot) throws Exception {
+        var builder = Output.builder()
+            .jobId(jobId)
+            .alreadyRunning(adopted)
+            .adopted(adopted);
+
+        if (snapshot != null) {
+            try {
+                builder.connectionSnapshot(ConnectionSnapshots.store(runContext, snapshot));
+            } catch (Exception e) {
+                runContext.logger().warn("Unable to store the connection snapshot: {}", e.getMessage());
+            }
+            builder
+                .connection(ConnectionSummary.from(snapshot))
+                .jobUrl(
+                    ConnectionSnapshots.jobUrl(
+                        webappBaseUrl(runContext), snapshot.getConnection().getWorkspaceId(), snapshot.getConnection().getConnectionId(), jobId, null
+                    )
+                );
+        }
+        return builder.build();
     }
 
     private OnActiveSync resolveOnActiveSyncPolicy(RunContext runContext) throws IllegalVariableEvaluationException {
@@ -466,6 +497,25 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             description = "Rows synced and source and destination tables affected by the completed Airbyte job. Only available when `wait` is enabled"
         )
         private final SyncMetadata metadata;
+
+        @Schema(
+            title = "Connection",
+            description = "Summary of the connection, source and destination that ran the job. `null` when their configuration could not be read"
+        )
+        private final ConnectionSummary connection;
+
+        @Schema(
+            title = "Connection snapshot file",
+            description = "Internal storage URI of a JSON file with the connection, source and destination configuration at the time of the job. Connector configurations are never included. `null` when it could not be read"
+        )
+        @PluginProperty(internalStorageURI = true)
+        private final URI connectionSnapshot;
+
+        @Schema(
+            title = "Job URL",
+            description = "Link to the job logs in the Airbyte web app, built from `webappUrl` or `url`. `null` when the workspace could not be resolved"
+        )
+        private final String jobUrl;
 
         @JsonIgnore
         @Getter(AccessLevel.NONE)

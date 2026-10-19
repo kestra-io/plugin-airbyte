@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
@@ -42,6 +43,13 @@ public abstract class AbstractAirbyteConnection extends Task {
     @NotNull
     @PluginProperty(group = "main")
     private Property<String> url;
+
+    @Schema(
+        title = "Airbyte web app URL",
+        description = "Base URL of the Airbyte web app, used to build the `jobUrl` output. Defaults to `url`. Set it when the web app is served from a different address than the API"
+    )
+    @PluginProperty(group = "connection")
+    private Property<String> webappUrl;
 
     @Schema(
         title = "Basic auth username",
@@ -89,7 +97,52 @@ public abstract class AbstractAirbyteConnection extends Task {
 
     protected <REQ, RES> HttpResponse<RES> request(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder, Class<RES> responseType)
         throws HttpClientException, IllegalVariableEvaluationException, SyncAlreadyRunningException {
+        var request = authenticated(runContext, requestBuilder);
 
+        try {
+            return this.<HttpResponse<RES>> buildRetry(runContext).runRetryIf(
+                this::isRetryableException,
+                () -> send(runContext, request, responseType)
+            );
+        } catch (AlreadyRunningWrapper e) {
+            throw new SyncAlreadyRunningException("A sync is already running");
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException("HTTP request failed", e);
+        }
+    }
+
+    /**
+     * Single attempt, for best-effort calls that must not block the task behind the 5-minute retry loop of {@link #request}.
+     */
+    protected <RES> HttpResponse<RES> requestOnce(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder, Class<RES> responseType)
+        throws Exception {
+        try {
+            return send(runContext, authenticated(runContext, requestBuilder), responseType);
+        } catch (AlreadyRunningWrapper e) {
+            throw new IllegalStateException("Airbyte rejected the request as a conflict");
+        }
+    }
+
+    protected String baseUrl(RunContext runContext) throws IllegalVariableEvaluationException {
+        return trimTrailingSlashes(runContext.render(this.url).as(String.class).orElseThrow());
+    }
+
+    protected String webappBaseUrl(RunContext runContext) throws IllegalVariableEvaluationException {
+        var rendered = this.webappUrl == null ? Optional.<String> empty() : runContext.render(this.webappUrl).as(String.class);
+        return rendered.isPresent() ? trimTrailingSlashes(rendered.get()) : baseUrl(runContext);
+    }
+
+    private static String trimTrailingSlashes(String value) {
+        var end = value.length();
+        while (end > 0 && value.charAt(end - 1) == '/') {
+            end--;
+        }
+        return value.substring(0, end);
+    }
+
+    private HttpRequest authenticated(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder) throws IllegalVariableEvaluationException {
         requestBuilder.addHeader("Content-Type", "application/json");
 
         retrieveApplicationCredentialsToken(runContext);
@@ -106,29 +159,17 @@ public abstract class AbstractAirbyteConnection extends Task {
             requestBuilder.addHeader("Authorization", basicAuthValue);
         }
 
-        var request = requestBuilder.build();
+        return requestBuilder.build();
+    }
 
-        try {
-            return this.<HttpResponse<RES>> buildRetry(runContext).runRetryIf(
-                this::isRetryableException,
-                () ->
-                {
-                    try (var client = new HttpClient(runContext, options)) {
-                        return client.request(request, responseType);
-                    } catch (HttpClientResponseException e) {
-                        if (this.isAlreadyRunningError(e)) {
-                            throw new AlreadyRunningWrapper();
-                        }
-                        throw e;
-                    }
-                }
-            );
-        } catch (AlreadyRunningWrapper e) {
-            throw new SyncAlreadyRunningException("A sync is already running");
-        } catch (RuntimeException e) {
+    private <RES> HttpResponse<RES> send(RunContext runContext, HttpRequest request, Class<RES> responseType) throws Exception {
+        try (var client = new HttpClient(runContext, options)) {
+            return client.request(request, responseType);
+        } catch (HttpClientResponseException e) {
+            if (this.isAlreadyRunningError(e)) {
+                throw new AlreadyRunningWrapper();
+            }
             throw e;
-        } catch (Throwable e) {
-            throw new RuntimeException("HTTP request failed", e);
         }
     }
 

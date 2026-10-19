@@ -23,9 +23,14 @@ import io.kestra.core.models.tasks.RunnableTaskException;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.utils.Await;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
+import io.kestra.plugin.airbyte.ConnectionSnapshots;
+import io.kestra.plugin.airbyte.StreamAssets;
 import io.kestra.plugin.airbyte.models.Attempt;
 import io.kestra.plugin.airbyte.models.AttemptInfo;
 import io.kestra.plugin.airbyte.models.AttemptStatus;
+import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
+import io.kestra.plugin.airbyte.models.ConnectionSummary;
+import io.kestra.plugin.airbyte.models.JobConfigType;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobStatus;
 import io.kestra.plugin.airbyte.models.JobSummary;
@@ -52,7 +57,9 @@ import io.kestra.core.models.annotations.PluginProperty;
 
         When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records.
 
-        Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`, and the `job.failures` output lists sanitized failure reasons: internal messages and stack traces are never kept
+        Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`, and the `job.failures` output lists sanitized failure reasons: internal messages and stack traces are never kept.
+
+        When Kestra runs with assets enabled (Enterprise Edition), every replicated stream that committed records is emitted as a table asset, with the source stream as its input. The asset id is `<destinationId>.<namespace>.<table>` and uses Airbyte's logical names, which can differ from the physical table name when the destination normalizes them
         """
 )
 @Plugin(
@@ -88,7 +95,7 @@ import io.kestra.core.models.annotations.PluginProperty;
                   - id: alert
                     type: io.kestra.plugin.core.log.Log
                     level: ERROR
-                    message: "Airbyte job failed: {{ outputs.check_status.job.failures[0].externalMessage }}"
+                    message: "Airbyte job failed: {{ outputs.check_status.job.failures[0].externalMessage }}. See {{ outputs.check_status.jobUrl }}"
                 """
         )
     },
@@ -143,6 +150,13 @@ import io.kestra.core.models.annotations.PluginProperty;
     }
 )
 public class CheckStatus extends AbstractAirbyteConnection implements RunnableTask<CheckStatus.Output> {
+    private static final Set<JobConfigType> SNAPSHOT_JOB_TYPES = EnumSet.of(
+        JobConfigType.SYNC,
+        JobConfigType.RESET_CONNECTION,
+        JobConfigType.REFRESH,
+        JobConfigType.CLEAR
+    );
+
     private static final Set<JobStatus> ENDED_JOB_STATUS = EnumSet.of(
         JobStatus.FAILED,
         JobStatus.CANCELLED,
@@ -190,6 +204,10 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
     @Override
     public CheckStatus.Output run(RunContext runContext) throws Exception {
+        return run(runContext, null, true);
+    }
+
+    CheckStatus.Output run(RunContext runContext, ConnectionSnapshot snapshot, boolean fetchSnapshotIfMissing) throws Exception {
         Logger logger = runContext.logger();
 
         var unknownStatusLogged = new AtomicBoolean(false);
@@ -262,6 +280,34 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         JobReports.emitAttemptTaskRuns(runContext, finalJobStatus, attemptRows);
         emitMetrics(runContext, finalJobStatus, summary);
 
+        if (snapshot == null && fetchSnapshotIfMissing && job.getConfigId() != null && SNAPSHOT_JOB_TYPES.contains(job.getConfigType())) {
+            snapshot = ConnectionSnapshots.fetch(this, runContext, job.getConfigId()).orElse(null);
+        }
+
+        URI snapshotUri = null;
+        ConnectionSummary connection = null;
+        String jobUrl = null;
+        if (snapshot != null) {
+            StreamAssets.emit(
+                runContext,
+                StreamAssets.plan(snapshot, JobReports.committed(finalJobStatus), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
+            );
+
+            try {
+                snapshotUri = ConnectionSnapshots.store(runContext, snapshot);
+            } catch (Exception e) {
+                logger.warn("Unable to store the connection snapshot: {}", e.getMessage());
+            }
+            connection = ConnectionSummary.from(snapshot);
+            jobUrl = ConnectionSnapshots.jobUrl(
+                webappBaseUrl(runContext),
+                snapshot.getConnection().getWorkspaceId(),
+                snapshot.getConnection().getConnectionId(),
+                job.getId(),
+                summary.getAttemptCount() > 0 ? summary.getAttemptCount() - 1 : null
+            );
+        }
+
         var partialSuccessAsWarning = status == JobStatus.FAILED
             && Boolean.TRUE.equals(summary.getPartialSuccess())
             && runContext.render(this.onPartialSuccess).as(OnPartialSuccess.class).orElse(OnPartialSuccess.FAIL) == OnPartialSuccess.WARNING;
@@ -271,6 +317,9 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             .job(summary)
             .attempts(attemptsUri)
             .metadata(syncMetadata(finalJobStatus))
+            .connection(connection)
+            .connectionSnapshot(snapshotUri)
+            .jobUrl(jobUrl)
             .state(partialSuccessAsWarning ? State.Type.WARNING : null)
             .build();
 
@@ -278,7 +327,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             return output;
         }
 
-        var message = JobReports.failureMessage(finalJobStatus, summary, null);
+        var message = JobReports.failureMessage(finalJobStatus, summary, jobUrl);
         if (partialSuccessAsWarning) {
             logger.warn("{}. Ending in WARNING because `onPartialSuccess` is `WARNING`", message);
             return output;
@@ -451,6 +500,25 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             description = "Rows synced and source and destination tables affected by the completed Airbyte job"
         )
         private final SyncMetadata metadata;
+
+        @Schema(
+            title = "Connection",
+            description = "Summary of the connection, source and destination that ran the job. `null` when their configuration could not be read"
+        )
+        private final ConnectionSummary connection;
+
+        @Schema(
+            title = "Connection snapshot file",
+            description = "Internal storage URI of a JSON file with the connection, source and destination configuration at the time of the job. Connector configurations are never included. `null` when it could not be read"
+        )
+        @PluginProperty(internalStorageURI = true)
+        private final URI connectionSnapshot;
+
+        @Schema(
+            title = "Job URL",
+            description = "Link to the job logs in the Airbyte web app, built from `webappUrl` or `url`. `null` when the workspace could not be resolved"
+        )
+        private final String jobUrl;
 
         @JsonIgnore
         @Getter(AccessLevel.NONE)
