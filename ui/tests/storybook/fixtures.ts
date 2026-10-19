@@ -47,10 +47,27 @@ const succeededJob = {
     failures: [],
 };
 
+const source = destination.map((table) => ({
+    name: table.name,
+    namespace: table.namespace,
+    rows: table.rows + (table.recordsRejected ?? 0),
+    bytes: table.bytes,
+}));
+
 export const succeededOutputs = {
     jobId: 71,
-    job: succeededJob,
-    metadata: { rowsSynced: 60_800, bytesSynced: 23_290_000, recordsRejected: 12, destination },
+    job: {
+        ...succeededJob,
+        createdAt: "2024-01-15T10:00:00Z",
+        endedAt: "2024-01-15T10:03:15Z",
+    },
+    metadata: {
+        rowsSynced: 60_800,
+        bytesSynced: 23_290_000,
+        recordsRejected: 12,
+        source,
+        destination,
+    },
     connection,
     jobUrl: "https://airbyte.example.com/workspaces/ws-1/connections/c/timeline?openLogs=true&jobId=71",
 };
@@ -133,3 +150,51 @@ export const fetchers = (outputs: Record<string, any>) => ({
     fetchOutputs: async () => outputs,
     fetchMetrics: async () => ({ results: [], total: 0 }),
 });
+export const adoptedOutputs = { ...succeededOutputs, adopted: true, alreadyRunning: true };
+
+export const manyStreamsOutputs = {
+    ...succeededOutputs,
+    metadata: {
+        rowsSynced: 78,
+        destination: Array.from({ length: 12 }, (_, index) => ({
+            name: `table_${index + 1}`,
+            namespace: "public",
+            rows: index + 1,
+            bytes: (index + 1) * 1000,
+        })),
+    },
+};
+
+// Credential-looking values must never reach the DOM: only the authentication method is shown.
+export const secretTask = {
+    ...task,
+    token: "TOKEN-SECRET-VALUE",
+    password: "PASSWORD-SECRET-VALUE",
+    clientSecret: "CLIENT-SECRET-VALUE",
+    clientId: "CLIENT-ID-VALUE",
+    applicationCredentials: { clientId: "APP-ID-VALUE", clientSecret: "APP-SECRET-VALUE" },
+};
+
+export const configuredTask = {
+    ...task,
+    webappUrl: "https://airbyte.example.com",
+    wait: true,
+    pollFrequency: "PT5S",
+    maxDuration: "PT1H",
+    onActiveSync: "ADOPT",
+    onPartialSuccess: "WARNING",
+    assets: { enableAuto: true },
+};
+
+export const runningExecution = {
+    ...execution,
+    state: { current: "RUNNING", startDate: "2024-01-15T10:00:00Z" } as any,
+    taskRunList: [
+        {
+            id: "tr-001",
+            taskId: "sync",
+            executionId: "exec-abc123",
+            state: { current: "RUNNING" },
+        },
+    ],
+} as any;

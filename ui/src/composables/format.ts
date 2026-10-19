@@ -41,6 +41,13 @@ export function formatDuration(value?: string | number | null): string {
     return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
+// Instants arrive as ISO strings; tolerate epoch seconds or milliseconds too.
+export function formatDateTime(value?: string | number | null): string {
+    if (value === undefined || value === null || value === "") return MISSING;
+    const date = new Date(typeof value === "number" && value < 1e11 ? value * 1000 : value);
+    return Number.isNaN(date.getTime()) ? MISSING : date.toLocaleString();
+}
+
 export function formatStatus(value?: string | null): string {
     return value ? value.toUpperCase() : MISSING;
 }

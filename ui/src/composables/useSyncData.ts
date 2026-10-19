@@ -6,6 +6,7 @@ type SlotProps = KnownSlotProps["topology-details"];
 export interface StreamRow {
     name: string;
     namespace?: string;
+    emitted?: number;
     rows?: number;
     bytes?: number;
     rejected?: number;
@@ -84,18 +85,26 @@ export function useSyncData(props: SlotProps) {
         () => metadata.value?.bytesSynced ?? job.value?.bytesSynced,
     );
 
+    // Destination tables carry the committed rows; the matching source table carries the emitted rows.
     const streams = computed<StreamRow[]>(() => {
         const tables = (metadata.value?.destination as MetadataTable[] | undefined) ?? [];
-        return tables.map((table) => ({
-            name: table.name ?? "",
-            namespace: table.namespace,
-            rows: table.rows,
-            bytes: table.bytes,
-            rejected: table.recordsRejected,
-        }));
+        const sources = (metadata.value?.source as MetadataTable[] | undefined) ?? [];
+        const emitted = new Map(sources.map((s) => [`${s.namespace ?? ""}.${s.name}`, s.rows]));
+        return tables
+            .map((table) => ({
+                name: table.name ?? "",
+                namespace: table.namespace,
+                emitted: emitted.get(`${table.namespace ?? ""}.${table.name}`),
+                rows: table.rows,
+                bytes: table.bytes,
+                rejected: table.recordsRejected,
+            }))
+            .sort((a, b) => (b.rows ?? -1) - (a.rows ?? -1));
     });
 
     return {
+        taskRunState,
+        isTerminal,
         hasExecution,
         taskOutputs,
         metrics,
