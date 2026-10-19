@@ -84,7 +84,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
     @Schema(
         title = "Maximum wait duration",
-        description = "Maximum total time to wait for the job to finish. Defaults to 60 minutes"
+        description = "Maximum total time to wait for the job to finish, including Airbyte's automatic retry attempts. Defaults to 60 minutes"
     )
     @Builder.Default
     Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));

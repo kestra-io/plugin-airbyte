@@ -109,7 +109,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
     @Schema(
         title = "Maximum wait duration",
-        description = "Maximum total time to wait for the job to finish. Defaults to 60 minutes"
+        description = "Maximum total time to wait for the job to finish, including Airbyte's automatic retry attempts. Defaults to 60 minutes"
     )
     @Builder.Default
     Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
@@ -157,7 +157,10 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                     sendLog(logger, jobStatus);
 
                     if (jobStatus.getJob().getStatus() == null && unknownStatusLogged.compareAndSet(false, true)) {
-                        logger.warn("Job status is not recognised by this plugin, polling until it reaches a known final status");
+                        logger.warn(
+                            "Status of job {} is not recognised by this plugin; polling continues until the job is failed, cancelled or succeeded, or until maxDuration is reached",
+                            jobIdRendered
+                        );
                     }
 
                     // ended

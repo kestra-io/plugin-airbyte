@@ -1,20 +1,30 @@
 package io.kestra.plugin.airbyte.connections;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.event.Level;
 
 import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 
 import io.kestra.core.junit.annotations.KestraTest;
+import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.property.Property;
+import io.kestra.core.queues.QueueFactoryInterface;
+import io.kestra.core.queues.QueueInterface;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
+import io.kestra.core.utils.IdUtils;
+import io.kestra.core.utils.TestsUtils;
+import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnectionTest;
 
 import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -30,6 +40,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class SyncMockTest extends AbstractAirbyteConnectionTest {
     @Inject
     private RunContextFactory runContextFactory;
+
+    @Inject
+    @Named(QueueFactoryInterface.WORKERTASKLOG_NAMED)
+    private QueueInterface<LogEntry> logQueue;
 
     private void stubApplicationToken() {
         stubFor(
@@ -103,7 +117,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -191,7 +205,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         var task = CheckStatus.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -241,7 +255,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         var task = CheckStatus.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -274,7 +288,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         var task = CheckStatus.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -314,7 +328,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -367,7 +381,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -402,7 +416,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -438,7 +452,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -470,7 +484,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -506,7 +520,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -565,7 +579,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -602,7 +616,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -634,7 +648,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         Sync task = Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -656,7 +670,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         return Sync.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -669,7 +683,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         return CheckStatus.builder()
             .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
             .applicationCredentials(
-                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
                     .clientId(Property.ofValue("local-client"))
                     .clientSecret(Property.ofValue("local-secret"))
                     .build()
@@ -793,10 +807,40 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         stubApplicationToken();
         stubJobsGetSequence("check-unknown", "some_future_status", "some_future_status", "succeeded");
 
-        var out = checkStatusTask(wireMockRuntimeInfo, "400").build().run(runContextFactory.of(Map.of()));
+        List<LogEntry> logs = new CopyOnWriteArrayList<>();
+        Runnable cancel = logQueue.receive(either ->
+        {
+            if (either.isLeft()) {
+                logs.add(either.getLeft());
+            }
+        });
 
-        assertThat(out.getFinalJobStatus(), is("succeeded"));
-        verify(exactly(3), postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
+        try {
+            var task = checkStatusTask(wireMockRuntimeInfo, "400")
+                .id(IdUtils.create())
+                .type(CheckStatus.class.getName())
+                .build();
+            var out = task.run(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+
+            assertThat(out.getFinalJobStatus(), is("succeeded"));
+            verify(exactly(3), postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
+
+            // Two polls returned the unknown status, yet the warning must be emitted only once
+            var warnings = TestsUtils.awaitLogs(
+                logs,
+                log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("not recognised"),
+                1
+            );
+            assertThat(warnings.size(), is(1));
+            assertThat(warnings.getFirst().getMessage(), containsString("400"));
+            assertThat(warnings.getFirst().getMessage(), containsString("maxDuration"));
+            assertThat(
+                logs.stream().filter(log -> log.getMessage() != null && log.getMessage().contains("not recognised")).count(),
+                is(1L)
+            );
+        } finally {
+            cancel.run();
+        }
     }
 
     @Test
