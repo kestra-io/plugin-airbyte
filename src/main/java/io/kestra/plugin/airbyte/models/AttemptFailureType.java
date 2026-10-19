@@ -6,7 +6,11 @@ import com.fasterxml.jackson.annotation.JsonValue;
 public enum AttemptFailureType {
     CONFIG_ERROR("config_error"),
     SYSTEM_ERROR("system_error"),
-    MANUAL_CANCELLATION("manual_cancellation");
+    MANUAL_CANCELLATION("manual_cancellation"),
+    REFRESH_SCHEMA("refresh_schema"),
+    HEARTBEAT_TIMEOUT("heartbeat_timeout"),
+    DESTINATION_TIMEOUT("destination_timeout"),
+    TRANSIENT_ERROR("transient_error");
 
     private String value;
 

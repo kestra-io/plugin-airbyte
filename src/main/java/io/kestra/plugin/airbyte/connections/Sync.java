@@ -3,9 +3,11 @@ package io.kestra.plugin.airbyte.connections;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import org.slf4j.Logger;
 
@@ -133,8 +135,9 @@ import io.kestra.core.models.annotations.PluginProperty;
     }
 )
 public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync.Output> {
-    private static final List<JobStatus> ACTIVE_JOB_STATUS = List.of(
+    private static final Set<JobStatus> ACTIVE_JOB_STATUS = EnumSet.of(
         JobStatus.PENDING,
+        JobStatus.QUEUED,
         JobStatus.RUNNING,
         JobStatus.INCOMPLETE
     );
@@ -172,7 +175,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Schema(
         title = "Behavior when a sync is already running",
         description = """
-            Controls what happens when a sync is already running for this connection:
+            Controls what happens when a sync is already running for this connection. A job that is pending, queued, running or incomplete counts as an active sync:
             - `ADOPT` (default): attach to the in-flight job and poll it to completion instead of triggering a new sync.
             - `FAIL`: fail the task immediately.
             - `SKIP`: succeed immediately without waiting, with `alreadyRunning` set to `true` and no `jobId`.

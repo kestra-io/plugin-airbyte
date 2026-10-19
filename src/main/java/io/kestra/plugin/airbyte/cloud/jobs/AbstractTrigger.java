@@ -2,7 +2,8 @@ package io.kestra.plugin.airbyte.cloud.jobs;
 
 import java.time.Duration;
 import java.time.ZonedDateTime;
-import java.util.List;
+import java.util.EnumSet;
+import java.util.Set;
 
 import org.slf4j.Logger;
 
@@ -59,8 +60,8 @@ import io.kestra.core.models.annotations.PluginProperty;
     }
 )
 public abstract class AbstractTrigger extends AbstractAirbyteCloud implements RunnableTask<AbstractTrigger.Output> {
-    private static final List<JobStatusEnum> ENDED_STATUS = List.of(
-        JobStatusEnum.INCOMPLETE,
+    // INCOMPLETE is not final: Airbyte reports it between attempts, then the job runs again
+    private static final Set<JobStatusEnum> ENDED_STATUS = EnumSet.of(
         JobStatusEnum.FAILED,
         JobStatusEnum.CANCELLED,
         JobStatusEnum.SUCCEEDED
@@ -97,6 +98,10 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
     abstract protected JobTypeEnum syncType();
 
+    static boolean isEnded(JobStatusEnum status) {
+        return ENDED_STATUS.contains(status);
+    }
+
     @Override
     public Output run(RunContext runContext) throws Exception {
         Logger logger = runContext.logger();
@@ -131,7 +136,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
                 this.validate(job.rawResponse());
 
                 // ended
-                if (ENDED_STATUS.contains(job.jobResponse().orElseThrow().status())) {
+                if (isEnded(job.jobResponse().orElseThrow().status())) {
                     return job.jobResponse().orElseThrow();
                 }
 

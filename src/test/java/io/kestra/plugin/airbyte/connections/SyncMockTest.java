@@ -1,5 +1,6 @@
 package io.kestra.plugin.airbyte.connections;
 
+import java.time.Duration;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -17,7 +18,9 @@ import jakarta.inject.Inject;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -647,5 +650,187 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         assertThat(out.getAlreadyRunning(), is(true));
 
         verify(exactly(0), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
+    }
+
+    private Sync.SyncBuilder<?, ?> syncTask(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        return Sync.builder()
+            .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .applicationCredentials(
+                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                    .clientId(Property.ofValue("local-client"))
+                    .clientSecret(Property.ofValue("local-secret"))
+                    .build()
+            )
+            .connectionId(Property.ofValue(connectionId))
+            .pollFrequency(Property.ofValue(Duration.ofMillis(100)));
+    }
+
+    private CheckStatus.CheckStatusBuilder<?, ?> checkStatusTask(WireMockRuntimeInfo wireMockRuntimeInfo, String jobId) {
+        return CheckStatus.builder()
+            .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .applicationCredentials(
+                io.kestra.plugin.airbyte.AbstractAirbyteConnection.ApplicationCredentials.builder()
+                    .clientId(Property.ofValue("local-client"))
+                    .clientSecret(Property.ofValue("local-secret"))
+                    .build()
+            )
+            .jobId(Property.ofValue(jobId))
+            .pollFrequency(Property.ofValue(Duration.ofMillis(100)));
+    }
+
+    private void stubJobsGetSequence(String scenario, String... statuses) {
+        for (var i = 0; i < statuses.length; i++) {
+            var mapping = post(urlPathMatching("/api/v1/jobs/get/?"))
+                .inScenario(scenario)
+                .whenScenarioStateIs(i == 0 ? "Started" : "step-" + i)
+                .willReturn(okJson("""
+                    { "job": { "id": 400, "status": "%s" }, "attempts": [] }
+                    """.formatted(statuses[i])));
+            if (i < statuses.length - 1) {
+                mapping.willSetStateTo("step-" + (i + 1));
+            }
+            stubFor(mapping);
+        }
+    }
+
+    private void stubQueuedJobInList() {
+        stubApplicationToken();
+        stubJobsList("""
+            {
+              "jobs": [
+                { "job": { "id": 400, "configType": "sync", "status": "queued" }, "attempts": [] }
+              ],
+              "totalJobCount": 1
+            }
+            """);
+    }
+
+    @Test
+    void run_fails_when_onActiveSync_is_FAIL_and_job_is_queued(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        stubQueuedJobInList();
+
+        var task = syncTask(wireMockRuntimeInfo)
+            .onActiveSync(Property.ofValue(Sync.OnActiveSync.FAIL))
+            .wait(Property.ofValue(false))
+            .build();
+
+        assertThrows(SyncAlreadyRunningException.class, () -> task.run(runContextFactory.of(Map.of())));
+        verify(exactly(0), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
+    }
+
+    @Test
+    void run_skips_when_onActiveSync_is_SKIP_and_job_is_queued(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubQueuedJobInList();
+
+        var out = syncTask(wireMockRuntimeInfo)
+            .onActiveSync(Property.ofValue(Sync.OnActiveSync.SKIP))
+            .wait(Property.ofValue(true))
+            .build()
+            .run(runContextFactory.of(Map.of()));
+
+        assertThat(out.getAlreadyRunning(), is(true));
+        assertThat(out.getJobId(), is(nullValue()));
+        verify(exactly(0), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
+    }
+
+    @Test
+    void run_adopts_queued_job_and_polls_to_completion(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubQueuedJobInList();
+        stubJobsGetSequence("adopt-queued", "queued", "succeeded");
+
+        var out = syncTask(wireMockRuntimeInfo)
+            .wait(Property.ofValue(true))
+            .build()
+            .run(runContextFactory.of(Map.of()));
+
+        assertThat(out.getJobId(), is(400L));
+        assertThat(out.getAdopted(), is(true));
+        assertThat(out.getAlreadyRunning(), is(true));
+        verify(exactly(0), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
+    }
+
+    @Test
+    void run_triggers_new_sync_when_listed_job_has_unknown_status(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubApplicationToken();
+        stubJobsList("""
+            {
+              "jobs": [
+                { "job": { "id": 410, "configType": "sync", "status": "some_future_status" }, "attempts": [] }
+              ],
+              "totalJobCount": 1
+            }
+            """);
+        stubFor(
+            post(urlPathMatching("/api/v1/connections/sync/?"))
+                .willReturn(okJson("""
+                    { "job": { "id": 411, "status": "running" }, "attempts": [] }
+                    """))
+        );
+
+        var out = syncTask(wireMockRuntimeInfo)
+            .wait(Property.ofValue(false))
+            .build()
+            .run(runContextFactory.of(Map.of()));
+
+        assertThat(out.getJobId(), is(411L));
+        assertThat(out.getAdopted(), is(false));
+        verify(exactly(1), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
+    }
+
+    @Test
+    void checkStatus_polls_through_queued_and_running(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubApplicationToken();
+        stubJobsGetSequence("check-queued", "queued", "running", "succeeded");
+
+        var out = checkStatusTask(wireMockRuntimeInfo, "400").build().run(runContextFactory.of(Map.of()));
+
+        assertThat(out.getFinalJobStatus(), is("succeeded"));
+        verify(exactly(3), postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
+    }
+
+    @Test
+    void checkStatus_keeps_polling_on_unknown_status(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubApplicationToken();
+        stubJobsGetSequence("check-unknown", "some_future_status", "some_future_status", "succeeded");
+
+        var out = checkStatusTask(wireMockRuntimeInfo, "400").build().run(runContextFactory.of(Map.of()));
+
+        assertThat(out.getFinalJobStatus(), is("succeeded"));
+        verify(exactly(3), postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
+    }
+
+    @Test
+    void checkStatus_reports_failure_type_and_origin(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        stubApplicationToken();
+        stubFor(
+            post(urlPathMatching("/api/v1/jobs/get/?"))
+                .willReturn(okJson("""
+                    {
+                      "job": { "id": 420, "status": "failed" },
+                      "attempts": [
+                        {
+                          "attempt": {
+                            "id": 0,
+                            "status": "failed",
+                            "failureSummary": {
+                              "failures": [
+                                { "failureOrigin": "airbyte_platform", "failureType": "transient_error" },
+                                { "failureOrigin": "unknown", "failureType": "heartbeat_timeout" }
+                              ]
+                            }
+                          },
+                          "logs": { "logLines": [] }
+                        }
+                      ]
+                    }
+                    """))
+        );
+
+        var task = checkStatusTask(wireMockRuntimeInfo, "420").build();
+        var exception = assertThrows(Exception.class, () -> task.run(runContextFactory.of(Map.of())));
+
+        assertThat(exception.getMessage(), containsString("failureType=transient_error"));
+        assertThat(exception.getMessage(), containsString("failureOrigin=unknown"));
+        assertThat(exception.getMessage(), not(containsString("failureType=null")));
     }
 }

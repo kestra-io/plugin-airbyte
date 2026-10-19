@@ -10,7 +10,8 @@ public enum AttemptFailureOrigin {
     PERSISTENCE("persistence"),
     NORMALIZATION("normalization"),
     DBT("dbt"),
-    AIRBYTE_PLATFORM("airbyte_platform");
+    AIRBYTE_PLATFORM("airbyte_platform"),
+    UNKNOWN("unknown");
 
     private String value;
 
