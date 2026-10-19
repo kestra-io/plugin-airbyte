@@ -32,6 +32,7 @@ import jakarta.inject.Named;
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
@@ -144,6 +145,14 @@ class CloudRunTest {
                     """))
         );
 
+        var logs = new CopyOnWriteArrayList<LogEntry>();
+        var cancel = logQueue.receive(either ->
+        {
+            if (either.isLeft()) {
+                logs.add(either.getLeft());
+            }
+        });
+
         var task = task(wiremock);
         var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
         var out = task.run(runContext);
@@ -153,6 +162,15 @@ class CloudRunTest {
         assertThat(out.getConnection().getDestinationType(), is("snowflake"));
         assertThat(out.getConnection().getStreamCount(), is(2));
         Mockito.verify(runContext, Mockito.atLeastOnce()).assets();
+
+        try {
+            var warnings = TestsUtils.awaitLogs(
+                logs, log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Could not read the Airbyte Cloud source src-1"), 1
+            );
+            assertThat(warnings, hasSize(1));
+        } finally {
+            cancel.run();
+        }
     }
 
     @Test
@@ -192,10 +210,12 @@ class CloudRunTest {
             assertThat(out.getJob().getRowsSynced(), is(20L));
             assertThat(out.getConnection(), nullValue());
             assertThat(out.getJobUrl(), nullValue());
-            TestsUtils.awaitLogs(
-                logs, log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Unable to read the configuration of connection"), 1
+            var warnings = TestsUtils.awaitLogs(
+                logs, log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Unable to read connection " + CONNECTION_ID + " from Airbyte Cloud"), 1
             );
+            assertThat(warnings, hasSize(1));
             verify(exactly(1), getRequestedFor(urlPathMatching("/v1/connections/.*")));
+            verify(exactly(0), getRequestedFor(urlPathMatching("/v1/(sources|destinations)/.*")));
         } finally {
             cancel.run();
         }
