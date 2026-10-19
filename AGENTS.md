@@ -47,6 +47,7 @@ Infrastructure dependencies (Docker Compose services):
 - `io.kestra.plugin.airbyte.cloud.jobs.Sync`
 - `io.kestra.plugin.airbyte.connections.CheckStatus`
 - `io.kestra.plugin.airbyte.connections.Sync`
+- `io.kestra.plugin.airbyte.ConnectionSnapshots` and `io.kestra.plugin.airbyte.StreamAssets` (connection snapshot and lineage assets, shared with the Cloud tasks)
 
 ### Project Structure
 
@@ -54,6 +55,7 @@ Infrastructure dependencies (Docker Compose services):
 plugin-airbyte/
 ├── src/main/java/io/kestra/plugin/airbyte/models/
 ├── src/test/java/io/kestra/plugin/airbyte/models/
+├── ui/                      # Vue plugin UI (topology card and drawer), built into src/main/resources/plugin-ui
 ├── build.gradle
 └── README.md
 ```

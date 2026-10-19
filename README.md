@@ -72,6 +72,12 @@ With assets enabled (Enterprise Edition only), each replicated stream that commi
 
 **Migration note:** `cloud.jobs.Sync` and `cloud.jobs.Reset` now fail when the Airbyte job ends `FAILED` or `CANCELLED`. Outputs remain available; use `allowFailure: true` or an `errors` branch to keep the previous behavior.
 
+## UI
+
+On Kestra 2.0 and later, `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset` get a topology card and a task drawer. The card shows the source and destination types, stream count, rows and bytes synced, attempts and status. The drawer adds the job summary, failure reasons, a per-stream table with rows, bytes and rejected records, the connection summary and a link to the job in Airbyte. Airbyte Cloud jobs show job totals only.
+
+The UI only displays inline outputs and metrics: the contents of the `attempts` and `connectionSnapshot` files are not shown. Kestra 1.3.x ignores the UI. See [`ui/README.md`](ui/README.md) for local development.
+
 ## Documentation
 * Full documentation can be found under: [kestra.io/docs](https://kestra.io/docs)
 * Documentation for developing a plugin is included in the [Plugin Developer Guide](https://kestra.io/docs/plugin-developer-guide/)
