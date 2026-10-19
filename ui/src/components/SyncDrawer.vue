@@ -11,7 +11,7 @@ import {
     formatStatus,
     safeHttpUrl,
 } from "../composables/format";
-import { useSyncData } from "../composables/useSyncData";
+import { useSyncData, type Failure } from "../composables/useSyncData";
 
 const { t } = useI18n({
     inheritLocale: true,
@@ -37,6 +37,7 @@ const { t } = useI18n({
             source: "Source",
             destination: "Destination",
             openJob: "Open the job in Airbyte",
+            empty: "Run the flow to see the job summary.",
             yes: "Yes",
             no: "No",
         },
@@ -87,25 +88,38 @@ const maxRows = computed(() => Math.max(1, ...streams.value.map((stream) => stre
 const barWidth = (rows?: number) => `${Math.round(((rows ?? 0) / maxRows.value) * 100)}%`;
 const streamLabel = (stream: { name: string; namespace?: string }) =>
     stream.namespace ? `${stream.namespace}.${stream.name}` : stream.name;
+// Airbyte retries repeat the same failure on every attempt: show each distinct one once, with a count.
+const groupedFailures = computed(() => {
+    const groups = new Map<string, { failure: Failure; count: number }>();
+    for (const failure of failures.value) {
+        const key = JSON.stringify([failure.origin, failure.type, failure.externalMessage]);
+        const group = groups.get(key);
+        if (group) group.count++;
+        else groups.set(key, { failure, count: 1 });
+    }
+    return [...groups.values()];
+});
 const failureLabel = (failure: { origin?: string; type?: string }) =>
     [failure.origin, failure.type].filter(Boolean).join(" / ");
 </script>
 
 <template>
     <div class="airbyte-drawer">
-        <template v-if="hasExecution && taskOutputs">
+        <p v-if="!hasExecution" class="airbyte-section airbyte-empty">{{ t("empty") }}</p>
+        <template v-else-if="taskOutputs">
             <section class="airbyte-section">
                 <h4 class="airbyte-section__title">{{ t("jobSummary") }}</h4>
                 <KsTopologyDetails :rows="jobRows" />
             </section>
 
-            <section v-if="failures.length" class="airbyte-section">
+            <section v-if="groupedFailures.length" class="airbyte-section">
                 <h4 class="airbyte-section__title">{{ t("failures") }}</h4>
                 <ul class="airbyte-failures">
-                    <li v-for="(failure, index) in failures" :key="index">
-                        <strong>{{ failureLabel(failure) }}</strong>
-                        <span v-if="failure.stream"> ({{ failure.stream }})</span>
-                        <div>{{ failure.externalMessage }}</div>
+                    <li v-for="(group, index) in groupedFailures" :key="index">
+                        <strong>{{ failureLabel(group.failure) }}</strong>
+                        <span v-if="group.count > 1"> ×{{ group.count }}</span>
+                        <span v-if="group.failure.stream"> ({{ group.failure.stream }})</span>
+                        <div>{{ group.failure.externalMessage }}</div>
                     </li>
                 </ul>
             </section>
@@ -161,6 +175,11 @@ const failureLabel = (failure: { origin?: string; type?: string }) =>
     margin: 0 0 var(--ks-spacing-2);
     font-size: var(--ks-font-size-xs);
     font-weight: 600;
+    color: var(--ks-text-secondary);
+}
+
+.airbyte-empty {
+    font-size: var(--ks-font-size-xs);
     color: var(--ks-text-secondary);
 }
 

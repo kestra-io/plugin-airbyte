@@ -9,6 +9,7 @@ import {
     cloudTask,
     failedOutputs,
     fetchers,
+    repeatedFailureOutputs,
     succeededOutputs,
     task,
     warningOutputs,
@@ -58,6 +59,30 @@ export const Failed: Story = {
         ).toBeInTheDocument();
         expect(canvas.getByText("SOURCE / CONFIG_ERROR")).toBeInTheDocument();
         expect(canvas.queryByText("Streams")).toBeNull();
+    },
+};
+
+export const RepeatedFailures: Story = {
+    name: "Repeated failures are grouped",
+    args: { task, ...flow, ...fetchers(repeatedFailureOutputs) } as any,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        await waitFor(() => expect(canvas.getByText("Failure reasons")).toBeInTheDocument());
+        expect(canvas.getAllByText("Something went wrong in the connector.").length).toBe(1);
+        expect(canvas.getByText("×4")).toBeInTheDocument();
+        expect(canvas.getByText("Bad credentials")).toBeInTheDocument();
+        expect(canvas.getAllByRole("listitem").length).toBe(2);
+    },
+};
+
+export const NoExecution: Story = {
+    name: "No execution shows an empty state",
+    args: { task, ...flow } as any,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        await waitFor(() =>
+            expect(canvas.getByText("Run the flow to see the job summary.")).toBeInTheDocument(),
+        );
     },
 };
 

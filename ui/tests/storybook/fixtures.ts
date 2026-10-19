@@ -75,6 +75,27 @@ export const failedOutputs = {
     connection,
 };
 
+export const repeatedFailureOutputs = {
+    ...failedOutputs,
+    job: {
+        ...failedOutputs.job,
+        attemptCount: 3,
+        failures: [
+            ...Array.from({ length: 3 }, () => ({
+                origin: "SOURCE",
+                type: "SYSTEM_ERROR",
+                externalMessage: "Something went wrong in the connector.",
+            })),
+            { origin: "SOURCE", type: "CONFIG_ERROR", externalMessage: "Bad credentials" },
+            {
+                origin: "SOURCE",
+                type: "SYSTEM_ERROR",
+                externalMessage: "Something went wrong in the connector.",
+            },
+        ],
+    },
+};
+
 export const warningOutputs = {
     jobId: 73,
     job: {
