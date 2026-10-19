@@ -185,13 +185,88 @@ export const CheckStatusJobId: Story = {
     args: {
         task: { ...task, type: "io.kestra.plugin.airbyte.connections.CheckStatus", jobId: "2" },
         ...flow,
-        ...fetchers({ ...succeededOutputs, jobId: undefined }),
+        ...fetchers({ ...succeededOutputs, jobId: undefined, jobUrl: undefined }),
     } as any,
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement);
         await waitFor(() => expect(canvas.getByText("Streams (3)")).toBeInTheDocument());
         const outputsWithoutJobId = canvas.getAllByText("Job ID").at(-1)?.nextElementSibling;
         expect(outputsWithoutJobId?.textContent).toBe("2");
+    },
+};
+
+const checkStatusTask = { ...task, type: "io.kestra.plugin.airbyte.connections.CheckStatus" };
+
+export const TemplatedJobId: Story = {
+    name: "Templated job ID is never shown",
+    args: {
+        task: { ...checkStatusTask, jobId: "{{ outputs.sync.jobId }}" },
+        ...flow,
+        ...fetchers({ ...succeededOutputs, jobId: undefined, jobUrl: undefined }),
+    } as any,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        await waitFor(() => expect(canvas.getByText("Streams (3)")).toBeInTheDocument());
+        expect(canvas.getAllByText("Job ID").at(-1)?.nextElementSibling?.textContent).toBe("—");
+    },
+};
+
+export const TemplatedJobIdWithLink: Story = {
+    name: "Templated job ID: the job link wins",
+    args: {
+        task: { ...checkStatusTask, jobId: "{{ outputs.sync.jobId }}" },
+        ...flow,
+        ...fetchers({ ...succeededOutputs, jobId: undefined }),
+    } as any,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        await waitFor(() => expect(canvas.getByText("Streams (3)")).toBeInTheDocument());
+        expect(canvas.getAllByText("Job ID").at(-1)?.nextElementSibling?.textContent).toBe("71");
+    },
+};
+
+export const NotWaited: Story = {
+    name: "wait: false keeps the link and the connection",
+    args: {
+        task: { ...task, wait: false },
+        ...flow,
+        ...fetchers({
+            jobId: 74,
+            alreadyRunning: false,
+            adopted: false,
+            connection: succeededOutputs.connection,
+            jobUrl: succeededOutputs.jobUrl,
+        }),
+    } as any,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        await waitFor(() =>
+            expect(
+                canvas.getByText(
+                    "The task didn't wait for the job to finish; open it in Airbyte for its progress.",
+                ),
+            ).toBeInTheDocument(),
+        );
+        expect(canvas.getByText("Open the job in Airbyte")).toBeInTheDocument();
+        expect(canvas.getByText("Connection")).toBeInTheDocument();
+        expect(canvas.queryByText("Job")).toBeNull();
+    },
+};
+
+export const Skipped: Story = {
+    name: "onActiveSync SKIP",
+    args: {
+        task: { ...task, onActiveSync: "SKIP" },
+        ...flow,
+        ...fetchers({ alreadyRunning: true, adopted: false }),
+    } as any,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        await waitFor(() =>
+            expect(canvas.getByText("Skipped: a sync was already running")).toBeInTheDocument(),
+        );
+        expect(canvas.queryByText("Adopted running sync")).toBeNull();
+        expect(canvas.queryByText(/didn't wait/)).toBeNull();
     },
 };
 

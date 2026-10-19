@@ -313,8 +313,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
         var metadata = syncMetadata(finalJobStatus);
 
-        // Core drops the assets of a FAILED task run, so only emit when the task ends SUCCESS or WARNING.
-        // A clear or reset removes data, so a stream-level table fed by its source would be false lineage.
+        // Core drops assets of failed runs, and a clear or reset would give false lineage.
         if (snapshot != null && ASSET_JOB_TYPES.contains(job.getConfigType()) && (status == JobStatus.SUCCEEDED || partialSuccessAsWarning)) {
             StreamAssets.emit(
                 runContext,

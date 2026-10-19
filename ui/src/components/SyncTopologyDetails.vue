@@ -4,6 +4,7 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { KsTopologyDetails } from "@kestra-io/design-system";
 import { MISSING, formatBytes, formatNumber, formatStatus } from "../composables/format";
+import { headlineSettings } from "../composables/settings";
 import { useSyncData } from "../composables/useSyncData";
 
 const { t } = useI18n({
@@ -11,8 +12,6 @@ const { t } = useI18n({
     useScope: "local",
     messages: {
         en: {
-            connectionId: "Connection ID",
-            url: "Airbyte URL",
             route: "Source → Destination",
             streams: "Streams",
             rowsSynced: "Rows synced",
@@ -37,10 +36,7 @@ const route = computed(() => {
 
 const rows = computed(() => {
     if (!hasExecution.value) {
-        return [
-            { label: t("connectionId"), value: task.value?.connectionId ?? MISSING },
-            { label: t("url"), value: task.value?.url ?? MISSING },
-        ];
+        return headlineSettings(task.value).map(({ label, value }) => ({ label, value }));
     }
 
     return [

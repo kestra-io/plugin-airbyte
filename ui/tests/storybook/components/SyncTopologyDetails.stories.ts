@@ -43,6 +43,35 @@ export const NoExecution: Story = {
     },
 };
 
+export const NoExecutionCheckStatus: Story = {
+    name: "No execution: CheckStatus shows the job ID",
+    args: {
+        task: {
+            ...task,
+            type: "io.kestra.plugin.airbyte.connections.CheckStatus",
+            connectionId: undefined,
+            jobId: "970",
+        },
+        ...flow,
+    } as any,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        await waitFor(() => expect(canvas.getByText("Job ID")).toBeInTheDocument());
+        expect(canvas.getByText("970")).toBeInTheDocument();
+        expect(canvas.queryByText("Connection ID")).toBeNull();
+    },
+};
+
+export const NoExecutionCloud: Story = {
+    name: "No execution: Cloud shows the connection ID only",
+    args: { task: cloudTask, ...flow } as any,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        await waitFor(() => expect(canvas.getByText("Connection ID")).toBeInTheDocument());
+        expect(canvas.queryByText("Airbyte URL")).toBeNull();
+    },
+};
+
 export const Running: Story = {
     name: "Running",
     args: {

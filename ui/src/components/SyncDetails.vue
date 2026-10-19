@@ -14,10 +14,10 @@ import {
     safeHttpUrl,
 } from "../composables/format";
 import { isCloudTask, taskSettings } from "../composables/settings";
+import { RUNNING_STATES } from "../composables/states";
 import { useSyncData, type Failure } from "../composables/useSyncData";
 
 const MAX_STREAMS = 10;
-const RUNNING_STATES = ["CREATED", "RUNNING", "QUEUED", "RESTARTED"];
 
 const { t } = useI18n({
     inheritLocale: true,
@@ -58,6 +58,9 @@ const { t } = useI18n({
             running: "Running",
             partialSuccess: "Partial success",
             adopted: "Adopted running sync",
+            skipped: "Skipped: a sync was already running",
+            notWaited:
+                "The task didn't wait for the job to finish; open it in Airbyte for its progress.",
             retryable: "Retryable",
             alertTitle: "Airbyte job {status} after {count} attempt(s)",
             alertTitleShort: "Airbyte job {status}",
@@ -85,7 +88,8 @@ const task = computed(() => props.task as Record<string, any> | undefined);
 const isCloud = computed(() => isCloudTask(task.value));
 const settings = computed(() => taskSettings(task.value));
 
-const hasOutputs = computed(() => !!taskOutputs.value && !!job.value);
+const hasJob = computed(() => !!job.value);
+const hasOutputs = computed(() => !!taskOutputs.value && Object.keys(taskOutputs.value).length > 0);
 const running = computed(
     () =>
         hasExecution.value &&
@@ -101,11 +105,36 @@ const statusType = computed(() => {
     if (jobStatus.value === "cancelled") return "warning";
     return "info";
 });
-const adopted = computed(
-    () => taskOutputs.value?.adopted === true || taskOutputs.value?.alreadyRunning === true,
-);
+const adopted = computed(() => taskOutputs.value?.adopted === true);
 const jobUrl = computed(() => safeHttpUrl(taskOutputs.value?.jobUrl));
+// A sync that found a running one and was told to skip it returns no job ID.
+const skipped = computed(
+    () =>
+        taskOutputs.value?.alreadyRunning === true &&
+        taskOutputs.value?.adopted !== true &&
+        taskOutputs.value?.jobId == null,
+);
+// wait: false returns the job ID but no job summary.
+const notWaited = computed(
+    () => hasOutputs.value && !hasJob.value && taskOutputs.value?.jobId != null,
+);
 
+// The job link carries the real ID; an unrendered task expression such as {{ outputs.x.jobId }} is never shown.
+const jobIdValue = computed(() => {
+    let fromUrl: string | null = null;
+    try {
+        fromUrl = jobUrl.value ? new URL(jobUrl.value).searchParams.get("jobId") : null;
+    } catch {
+        /* ignore */
+    }
+    const fromTask = task.value?.jobId;
+    const literalTask =
+        fromTask !== undefined && fromTask !== null && !String(fromTask).includes("{{")
+            ? String(fromTask)
+            : undefined;
+    const fromOutputs = taskOutputs.value?.jobId ?? job.value?.jobId;
+    return String(fromUrl ?? fromOutputs ?? literalTask ?? MISSING);
+});
 const alertMessage = computed(() => failures.value[0]?.externalMessage);
 const alertTitle = computed(() =>
     job.value?.attemptCount !== undefined
@@ -120,10 +149,7 @@ const jobRows = computed(() => {
     const value = job.value ?? {};
     const rows = [
         // CheckStatus takes the job ID as an input, so its outputs carry none: fall back to the task.
-        {
-            label: t("jobId"),
-            value: String(taskOutputs.value?.jobId ?? value.jobId ?? task.value?.jobId ?? MISSING),
-        },
+        { label: t("jobId"), value: jobIdValue.value },
         {
             label: t("jobType"),
             value: String(value.configType ?? value.jobType ?? MISSING).toLowerCase(),
@@ -213,9 +239,10 @@ const groupedFailures = computed(() => {
         <div class="airbyte-details">
             <div v-if="hasOutputs || running" class="airbyte-header">
                 <KsTag v-if="running" size="small" type="info">{{ t("running") }}</KsTag>
-                <KsTag v-else size="small" :type="statusType">{{
+                <KsTag v-else-if="hasJob" size="small" :type="statusType">{{
                     formatStatus(job?.status)
                 }}</KsTag>
+                <KsTag v-if="skipped" size="small" type="info">{{ t("skipped") }}</KsTag>
                 <KsTag v-if="job?.partialSuccess" size="small" type="warning">
                     {{ t("partialSuccess") }}
                 </KsTag>
@@ -226,7 +253,7 @@ const groupedFailures = computed(() => {
             </div>
 
             <KsAlert
-                v-if="hasOutputs && isFailure"
+                v-if="hasJob && isFailure"
                 type="error"
                 :title="alertTitle"
                 :description="alertMessage"
@@ -242,8 +269,9 @@ const groupedFailures = computed(() => {
 
             <p v-if="!hasExecution" class="airbyte-note">{{ t("empty") }}</p>
             <p v-else-if="running" class="airbyte-note">{{ t("runningHint") }}</p>
+            <p v-else-if="notWaited" class="airbyte-note">{{ t("notWaited") }}</p>
 
-            <template v-if="hasOutputs">
+            <template v-if="hasJob">
                 <details class="airbyte-section" open>
                     <summary class="airbyte-section__title">{{ t("job") }}</summary>
                     <KsTopologyDetails :rows="jobRows" />
@@ -336,12 +364,12 @@ const groupedFailures = computed(() => {
                 <p v-else class="airbyte-note">
                     {{ isCloud ? t("cloudNoStreams") : t("noStreams") }}
                 </p>
-
-                <details v-if="connection" class="airbyte-section">
-                    <summary class="airbyte-section__title">{{ t("connection") }}</summary>
-                    <KsTopologyDetails :rows="connectionRows" />
-                </details>
             </template>
+
+            <details v-if="connection" class="airbyte-section">
+                <summary class="airbyte-section__title">{{ t("connection") }}</summary>
+                <KsTopologyDetails :rows="connectionRows" />
+            </details>
         </div>
     </ElConfigProvider>
 </template>

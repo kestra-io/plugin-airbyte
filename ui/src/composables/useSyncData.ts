@@ -1,5 +1,6 @@
 import type { KnownSlotProps } from "@kestra-io/artifact-sdk";
 import { computed, ref, watch } from "vue";
+import { TERMINAL_STATES } from "./states";
 
 type SlotProps = KnownSlotProps["topology-details"];
 
@@ -57,7 +58,6 @@ export function useSyncData(props: SlotProps) {
     }
 
     // A card opened while the sync is still running has no outputs yet: reload once the task run ends.
-    const TERMINAL_STATES = ["SUCCESS", "WARNING", "FAILED", "KILLED", "CANCELLED", "SKIPPED"];
     const taskRunState = computed(() => taskRun.value?.state?.current as string | undefined);
     const isTerminal = computed(() => TERMINAL_STATES.includes(taskRunState.value ?? ""));
 

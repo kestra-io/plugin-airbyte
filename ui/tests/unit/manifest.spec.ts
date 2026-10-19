@@ -7,10 +7,18 @@ import { describe, expect, test } from "vitest";
 describe("vite.config.ts exposes", () => {
     const config = readFileSync(resolve(process.cwd(), "vite.config.ts"), "utf8");
 
-    test("each of the four tasks opens the details dialog", () => {
-        expect(config.match(/customAction: \{ label: "Airbyte details" \}/g)).toHaveLength(4);
-        expect(config.match(/slotName: "topology-task-modal"/g)).toHaveLength(4);
-        expect(config.match(/slotName: "topology-details"/g)).toHaveLength(4);
+    test("builds the same dialog wiring for each of the four tasks", () => {
+        for (const type of [
+            "connections.Sync",
+            "connections.CheckStatus",
+            "cloud.jobs.Sync",
+            "cloud.jobs.Reset",
+        ]) {
+            expect(config).toContain(`type: "${type}"`);
+        }
+        expect(config.match(/customAction: \{ label: "Airbyte details" \}/g)).toHaveLength(1);
+        expect(config.match(/slotName: "topology-task-modal"/g)).toHaveLength(1);
+        expect(config.match(/slotName: "topology-details"/g)).toHaveLength(1);
     });
 
     test("no taskProp and no drawer slot", () => {

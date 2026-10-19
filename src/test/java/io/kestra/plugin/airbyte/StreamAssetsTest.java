@@ -104,7 +104,7 @@ class StreamAssetsTest {
             Map.of(descriptor("customers", "public"), rows(5), descriptor("orders", null), rows(1)), 12L, "succeeded", true
         );
 
-        assertThat(planned.get(0).output().getId(), is("dst-1.raw_public.customers"));
+        assertThat(planned.getFirst().output().getId(), is("dst-1.raw_public.customers"));
         assertThat(planned.get(1).output().getId(), is("dst-1.orders"));
         assertThat(planned.get(1).input().id(), is("src-1.orders"));
     }
@@ -126,7 +126,7 @@ class StreamAssetsTest {
             Map.of(descriptor("customers", "public"), rows(5), descriptor("orders", "public"), rows(5)), 12L, "succeeded", true
         );
 
-        assertThat(planned.get(0).output().getId(), is("dst-1.public.raw_customers"));
+        assertThat(planned.getFirst().output().getId(), is("dst-1.public.raw_customers"));
         assertThat(planned.get(1).output().getId(), is("dst-1.public.ORDERS_TBL"));
         assertThat(planned.get(1).output().getDisplayName(), is("ORDERS_TBL"));
     }

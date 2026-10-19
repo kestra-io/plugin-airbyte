@@ -878,7 +878,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         assertThat(exception.getMessage(), containsString("[airbyte_platform/transient_error]"));
         var failures = ((CheckStatus.Output) exception.getOutput()).getJob().getFailures();
         assertThat(failures.size(), is(2));
-        assertThat(failures.get(0).getType(), is(AttemptFailureType.TRANSIENT_ERROR));
+        assertThat(failures.getFirst().getType(), is(AttemptFailureType.TRANSIENT_ERROR));
         assertThat(failures.get(1).getOrigin(), is(AttemptFailureOrigin.UNKNOWN));
         assertThat(failures.get(1).getType(), is(AttemptFailureType.HEARTBEAT_TIMEOUT));
     }
