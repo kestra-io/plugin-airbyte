@@ -1,16 +1,22 @@
 package io.kestra.plugin.airbyte.cloud.jobs;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.util.EnumSet;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.slf4j.Logger;
 
 import com.airbyte.api.Airbyte;
 import com.airbyte.api.models.operations.CreateJobResponse;
+import com.airbyte.api.models.operations.GetConnectionRequest;
+import com.airbyte.api.models.operations.GetDestinationRequest;
 import com.airbyte.api.models.operations.GetJobRequest;
 import com.airbyte.api.models.operations.GetJobResponse;
+import com.airbyte.api.models.operations.GetSourceRequest;
 import com.airbyte.api.models.shared.JobCreateRequest;
 import com.airbyte.api.models.shared.JobResponse;
 import com.airbyte.api.models.shared.JobStatusEnum;
@@ -23,9 +29,15 @@ import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.executions.metrics.Timer;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
+import io.kestra.core.models.tasks.RunnableTaskException;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.utils.Await;
+import io.kestra.plugin.airbyte.ConnectionSnapshots;
+import io.kestra.plugin.airbyte.StreamAssets;
 import io.kestra.plugin.airbyte.cloud.AbstractAirbyteCloud;
+import io.kestra.plugin.airbyte.cloud.CloudSnapshots;
+import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
+import io.kestra.plugin.airbyte.models.ConnectionSummary;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
@@ -98,8 +110,24 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
     abstract protected JobTypeEnum syncType();
 
+    /**
+     * Whether a successful job lands data worth declaring as assets. A reset clears data, so it declares none.
+     */
+    protected boolean emitsAssets() {
+        return false;
+    }
+
     static boolean isEnded(JobStatusEnum status) {
         return ENDED_STATUS.contains(status);
+    }
+
+    static boolean isFailure(JobStatusEnum status) {
+        return status == JobStatusEnum.FAILED || status == JobStatusEnum.CANCELLED;
+    }
+
+    static String failureMessage(Long jobId, JobStatusEnum status, String jobUrl) {
+        return "Airbyte Cloud job " + jobId + " ended " + status.value() + ". "
+            + (jobUrl == null ? "Check the job logs in Airbyte Cloud" : "See " + jobUrl);
     }
 
     @Override
@@ -108,10 +136,8 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
         Airbyte client = this.client(runContext);
 
-        JobCreateRequest createJobRequest = new JobCreateRequest(
-            runContext.render(this.connectionId).as(String.class).orElse(null),
-            this.syncType()
-        );
+        var rConnectionId = runContext.render(this.connectionId).as(String.class).orElse(null);
+        JobCreateRequest createJobRequest = new JobCreateRequest(rConnectionId, this.syncType());
 
         CreateJobResponse createJobResponse = client.jobs().createJob(createJobRequest);
         this.validate(createJobResponse.rawResponse());
@@ -120,10 +146,10 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
         logger.info("Job id {} with response: {}", createJob.jobId, createJob);
 
+        var snapshot = fetchSnapshot(client, runContext, rConnectionId);
+
         if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
-            return AbstractTrigger.Output.builder()
-                .job(createJob)
-                .build();
+            return outputOf(runContext, createJob, snapshot);
         }
 
         GetJobRequest getJobRequest = new GetJobRequest(createJob.jobId);
@@ -155,9 +181,69 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         finalJobResponse.duration()
             .ifPresent(duration -> runContext.metric(Timer.of("duration", Duration.parse(duration))));
 
-        return Output.builder()
-            .job(Job.of(finalJobResponse))
-            .build();
+        var finalJob = Job.of(finalJobResponse);
+        if (emitsAssets() && snapshot.isPresent() && finalJob.status == JobStatusEnum.SUCCEEDED) {
+            StreamAssets.emit(
+                runContext,
+                StreamAssets.plan(snapshot.get(), Map.of(), finalJob.jobId, finalJob.status.value(), true)
+            );
+        }
+
+        var output = outputOf(runContext, finalJob, snapshot);
+        if (isFailure(finalJob.status)) {
+            throw new RunnableTaskException(failureMessage(finalJob.jobId, finalJob.status, output.getJobUrl()), output);
+        }
+        return output;
+    }
+
+    private Optional<ConnectionSnapshot> fetchSnapshot(Airbyte client, RunContext runContext, String rConnectionId) {
+        try {
+            var connection = client.connections().getConnection(new GetConnectionRequest(rConnectionId));
+            this.validate(connection.rawResponse());
+            var connectionResponse = connection.connectionResponse().orElseThrow(() -> new IllegalStateException("Empty connection response"));
+
+            var source = client.sources().getSource(new GetSourceRequest(connectionResponse.sourceId()));
+            this.validate(source.rawResponse());
+
+            var destination = client.destinations().getDestination(new GetDestinationRequest(connectionResponse.destinationId()));
+            this.validate(destination.rawResponse());
+
+            return Optional.of(
+                CloudSnapshots.toSnapshot(
+                    connectionResponse,
+                    source.sourceResponse().orElseThrow(() -> new IllegalStateException("Empty source response")),
+                    destination.destinationResponse().orElseThrow(() -> new IllegalStateException("Empty destination response"))
+                )
+            );
+        } catch (Exception e) {
+            runContext.logger().warn(
+                "Unable to read the configuration of connection {}, continuing without connection snapshot, job link and assets: {}. Check that the credentials can read connections, sources and destinations",
+                rConnectionId, e.getMessage()
+            );
+            return Optional.empty();
+        }
+    }
+
+    private Output outputOf(RunContext runContext, Job job, Optional<ConnectionSnapshot> snapshot) {
+        var builder = Output.builder().job(job);
+
+        snapshot.ifPresent(value ->
+        {
+            try {
+                builder.connectionSnapshot(ConnectionSnapshots.store(runContext, value));
+            } catch (Exception e) {
+                runContext.logger().warn("Unable to store the connection snapshot: {}", e.getMessage());
+            }
+            builder
+                .connection(ConnectionSummary.from(value))
+                .jobUrl(
+                    ConnectionSnapshots.jobUrl(
+                        CloudSnapshots.WEBAPP_URL, value.getConnection().getWorkspaceId(), value.getConnection().getConnectionId(), job.jobId, null
+                    )
+                );
+        });
+
+        return builder.build();
     }
 
     @Builder
@@ -168,6 +254,25 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
             description = "Airbyte Cloud job returned by the task"
         )
         private final Job job;
+
+        @Schema(
+            title = "Connection",
+            description = "Summary of the connection, source and destination of the job. `null` when their configuration could not be read"
+        )
+        private final ConnectionSummary connection;
+
+        @Schema(
+            title = "Connection snapshot file",
+            description = "Internal storage URI of a JSON file with the connection, source and destination configuration at the time of the job. Connector configurations are never included. `null` when it could not be read"
+        )
+        @PluginProperty(internalStorageURI = true)
+        private final URI connectionSnapshot;
+
+        @Schema(
+            title = "Job URL",
+            description = "Link to the job in the Airbyte Cloud web app. `null` when the workspace could not be resolved"
+        )
+        private final String jobUrl;
     }
 
     @Value
@@ -185,7 +290,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         @Schema(title = "Job type", description = "Type of job (e.g. SYNC or RESET)")
         public JobTypeEnum jobType;
 
-        @Schema(title = "Status", description = "Terminal job status")
+        @Schema(title = "Status", description = "Job status. Terminal when `wait` is enabled")
         public JobStatusEnum status;
 
         @Schema(title = "Duration", description = "Total duration of the job")

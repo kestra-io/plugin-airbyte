@@ -66,6 +66,12 @@ A job that does not end `SUCCEEDED` fails the task but keeps these outputs, so `
 
 With assets enabled (Enterprise Edition only), each replicated stream that committed records is emitted as a table asset `io.kestra.plugin.ee.assets.Table` with id `<destinationId>.<namespace>.<table>` (the namespace segment is left out when it cannot be resolved without the destination configuration) and the source stream as its input. Ids use Airbyte's logical names, which can differ from the physical table names, and do not match the ids emitted by other plugins.
 
+## Airbyte Cloud
+
+`cloud.jobs.Sync` and `cloud.jobs.Reset` return `job` plus `connection`, `connectionSnapshot` and `jobUrl` (link to the job in Airbyte Cloud). `Sync` emits table assets for the replicated streams when the job succeeds, with the same id format as self-hosted; `Reset` emits none. The Airbyte Cloud public API only reports `bytesSynced`, `rowsSynced` and `duration` for a job, so there are no per-stream or per-attempt statistics, no `attempts` output, no per-attempt sub task runs and no `onPartialSuccess`.
+
+**Migration note:** `cloud.jobs.Sync` and `cloud.jobs.Reset` now fail when the Airbyte job ends `FAILED` or `CANCELLED`. Outputs remain available; use `allowFailure: true` or an `errors` branch to keep the previous behavior.
+
 ## Documentation
 * Full documentation can be found under: [kestra.io/docs](https://kestra.io/docs)
 * Documentation for developing a plugin is included in the [Plugin Developer Guide](https://kestra.io/docs/plugin-developer-guide/)
