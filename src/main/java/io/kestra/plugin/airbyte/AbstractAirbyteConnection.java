@@ -8,7 +8,6 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
@@ -46,7 +45,9 @@ public abstract class AbstractAirbyteConnection extends Task {
 
     @Schema(
         title = "Airbyte web app URL",
-        description = "Base URL of the Airbyte web app, used to build the `jobUrl` output. Defaults to `url`. Set it when the web app is served from a different address than the API"
+        description = """
+            Base URL of the Airbyte web app, used to build the `jobUrl` output. Defaults to `url`. Set it when the web app is served from a different address than the API
+            """
     )
     @PluginProperty(group = "connection")
     private Property<String> webappUrl;
@@ -97,7 +98,7 @@ public abstract class AbstractAirbyteConnection extends Task {
 
     protected <REQ, RES> HttpResponse<RES> request(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder, Class<RES> responseType)
         throws HttpClientException, IllegalVariableEvaluationException, SyncAlreadyRunningException {
-        var request = authenticated(runContext, requestBuilder);
+        var request = authenticated(runContext, requestBuilder, true);
 
         try {
             return this.<HttpResponse<RES>> buildRetry(runContext).runRetryIf(
@@ -114,12 +115,13 @@ public abstract class AbstractAirbyteConnection extends Task {
     }
 
     /**
-     * Single attempt, for best-effort calls that must not block the task behind the 5-minute retry loop of {@link #request}.
+     * Single attempt for the call and for the application token fetch it may trigger, for best-effort calls that must not block
+     * the task behind the 5-minute retry loop of {@link #request}.
      */
     protected <RES> HttpResponse<RES> requestOnce(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder, Class<RES> responseType)
         throws Exception {
         try {
-            return send(runContext, authenticated(runContext, requestBuilder), responseType);
+            return send(runContext, authenticated(runContext, requestBuilder, false), responseType);
         } catch (AlreadyRunningWrapper e) {
             throw new IllegalStateException("Airbyte rejected the request as a conflict");
         }
@@ -130,8 +132,8 @@ public abstract class AbstractAirbyteConnection extends Task {
     }
 
     protected String webappBaseUrl(RunContext runContext) throws IllegalVariableEvaluationException {
-        var rendered = this.webappUrl == null ? Optional.<String> empty() : runContext.render(this.webappUrl).as(String.class);
-        return rendered.isPresent() ? trimTrailingSlashes(rendered.get()) : baseUrl(runContext);
+        var rWebappUrl = this.webappUrl == null ? null : runContext.render(this.webappUrl).as(String.class).orElse(null);
+        return rWebappUrl != null ? trimTrailingSlashes(rWebappUrl) : baseUrl(runContext);
     }
 
     private static String trimTrailingSlashes(String value) {
@@ -142,10 +144,10 @@ public abstract class AbstractAirbyteConnection extends Task {
         return value.substring(0, end);
     }
 
-    private HttpRequest authenticated(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder) throws IllegalVariableEvaluationException {
+    private HttpRequest authenticated(RunContext runContext, HttpRequest.HttpRequestBuilder requestBuilder, boolean retry) throws IllegalVariableEvaluationException {
         requestBuilder.addHeader("Content-Type", "application/json");
 
-        retrieveApplicationCredentialsToken(runContext);
+        retrieveApplicationCredentialsToken(runContext, retry);
 
         if (this.token != null) {
             requestBuilder.addHeader("Authorization", "Bearer " + runContext.render(this.token).as(String.class).orElseThrow());
@@ -171,6 +173,11 @@ public abstract class AbstractAirbyteConnection extends Task {
             }
             throw e;
         }
+    }
+
+    @FunctionalInterface
+    private interface CheckedSupplier<T> {
+        T get() throws Exception;
     }
 
     private static final class AlreadyRunningWrapper extends RuntimeException {
@@ -232,7 +239,7 @@ public abstract class AbstractAirbyteConnection extends Task {
         return Objects.toString(responseBody, "").toLowerCase(Locale.ROOT).contains("already running");
     }
 
-    private void retrieveApplicationCredentialsToken(RunContext runContext) throws IllegalVariableEvaluationException {
+    private void retrieveApplicationCredentialsToken(RunContext runContext, boolean retry) throws IllegalVariableEvaluationException {
         if (applicationCredentials != null) {
             final var clientId = runContext.render(this.applicationCredentials.getClientId()).as(String.class).orElseThrow();
             final var clientSecret = runContext.render(this.applicationCredentials.getClientSecret()).as(String.class).orElseThrow();
@@ -258,15 +265,15 @@ public abstract class AbstractAirbyteConnection extends Task {
 
             String applicationToken;
             try {
-                applicationToken = this.<String> buildRetry(runContext).runRetryIf(
-                    this::isRetryableException,
-                    () ->
-                    {
-                        try (var client = new HttpClient(runContext, options)) {
-                            return (String) client.request(tokenRequest, Map.class).getBody().getOrDefault("access_token", null);
-                        }
+                CheckedSupplier<String> fetchToken = () ->
+                {
+                    try (var client = new HttpClient(runContext, options)) {
+                        return (String) client.request(tokenRequest, Map.class).getBody().getOrDefault("access_token", null);
                     }
-                );
+                };
+                applicationToken = retry
+                    ? this.<String> buildRetry(runContext).runRetryIf(this::isRetryableException, fetchToken::get)
+                    : fetchToken.get();
             } catch (RuntimeException e) {
                 throw e;
             } catch (Throwable e) {

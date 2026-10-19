@@ -198,6 +198,35 @@ class SnapshotOutputsTest {
     }
 
     @Test
+    void clear_jobs_keep_the_snapshot_but_never_emit_assets(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubFor(
+            post(urlPathMatching("/api/v1/jobs/get/?"))
+                .withRequestBody(matchingJsonPath("$.id", equalTo("99")))
+                .willReturn(okJson("""
+                    {
+                      "job": { "id": 99, "configType": "clear", "configId": "%s", "status": "succeeded", "createdAt": 1700000000 },
+                      "attempts": [ { "attempt": { "id": 0, "status": "succeeded" }, "logs": { "logLines": [] } } ]
+                    }
+                    """.formatted(CONNECTION_ID)))
+        );
+
+        var task = CheckStatus.builder()
+            .id(IdUtils.create())
+            .type(CheckStatus.class.getName())
+            .url(Property.ofValue(wiremock.getHttpBaseUrl()))
+            .token(Property.ofValue("token"))
+            .jobId(Property.ofValue("99"))
+            .build();
+        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        var out = task.run(runContext);
+
+        assertThat(out.getConnection().getConnectionId(), is(CONNECTION_ID));
+        assertThat(out.getJobUrl(), containsString("jobId=99"));
+        Mockito.verify(runContext, Mockito.never()).assets();
+    }
+
+    @Test
     void sync_without_wait_still_exposes_the_snapshot(WireMockRuntimeInfo wiremock) throws Exception {
         stubSnapshotEndpoints();
         stubTrigger(92);

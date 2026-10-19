@@ -137,7 +137,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         Airbyte client = this.client(runContext);
 
         var rConnectionId = runContext.render(this.connectionId).as(String.class).orElse(null);
-        JobCreateRequest createJobRequest = new JobCreateRequest(rConnectionId, this.syncType());
+        var createJobRequest = new JobCreateRequest(rConnectionId, this.syncType());
 
         CreateJobResponse createJobResponse = client.jobs().createJob(createJobRequest);
         this.validate(createJobResponse.rawResponse());
@@ -146,7 +146,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
         logger.info("Job id {} with response: {}", createJob.jobId, createJob);
 
-        var snapshot = fetchSnapshot(client, runContext, rConnectionId);
+        var snapshot = fetchSnapshot(runContext, rConnectionId);
 
         if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
             return outputOf(runContext, createJob, snapshot);
@@ -196,8 +196,9 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         return output;
     }
 
-    private Optional<ConnectionSnapshot> fetchSnapshot(Airbyte client, RunContext runContext, String rConnectionId) {
+    private Optional<ConnectionSnapshot> fetchSnapshot(RunContext runContext, String rConnectionId) {
         try {
+            var client = this.snapshotClient(runContext);
             var connection = client.connections().getConnection(new GetConnectionRequest(rConnectionId));
             this.validate(connection.rawResponse());
             var connectionResponse = connection.connectionResponse().orElseThrow(() -> new IllegalStateException("Empty connection response"));

@@ -55,9 +55,14 @@ export function useSyncData(props: SlotProps) {
         }
     }
 
+    // A card opened while the sync is still running has no outputs yet: reload once the task run ends.
+    const TERMINAL_STATES = ["SUCCESS", "WARNING", "FAILED", "KILLED", "CANCELLED", "SKIPPED"];
+    const taskRunState = computed(() => taskRun.value?.state?.current as string | undefined);
+    const isTerminal = computed(() => TERMINAL_STATES.includes(taskRunState.value ?? ""));
+
     watch(
-        executionId,
-        (id) => {
+        [executionId, isTerminal],
+        ([id]) => {
             if (id) load();
         },
         { immediate: true },

@@ -1,5 +1,6 @@
 package io.kestra.plugin.airbyte.connections;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -272,7 +273,7 @@ class JobOutputsTest {
             assertThat(outputs, not(containsString("SECRET-")));
 
             try (var stream = runContext.storage().getFile(output.getAttempts())) {
-                var file = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
+                var file = new String(stream.readAllBytes(), StandardCharsets.ISO_8859_1);
                 assertThat(file, not(containsString("SECRET-")));
             }
 

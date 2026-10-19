@@ -3,11 +3,12 @@ package io.kestra.plugin.airbyte.connections;
 import java.net.URI;
 import java.time.Duration;
 import java.util.*;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.http.HttpResponse;
@@ -96,7 +97,7 @@ import io.kestra.core.models.annotations.PluginProperty;
                   - id: alert
                     type: io.kestra.plugin.core.log.Log
                     level: ERROR
-                    message: "Airbyte job failed: {{ outputs.check_status.job.failures[0].externalMessage }}. See {{ outputs.check_status.jobUrl }}"
+                    message: "Airbyte job failed: {{ outputs.check_status.job.failures[0].externalMessage ?? 'no failure message reported' }}. See {{ outputs.check_status.jobUrl }}"
                 """
         )
     },
@@ -157,6 +158,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         JobConfigType.REFRESH,
         JobConfigType.CLEAR
     );
+
+    private static final Set<JobConfigType> ASSET_JOB_TYPES = EnumSet.of(JobConfigType.SYNC, JobConfigType.REFRESH);
 
     private static final Set<JobStatus> ENDED_JOB_STATUS = EnumSet.of(
         JobStatus.FAILED,
@@ -311,7 +314,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         var metadata = syncMetadata(finalJobStatus);
 
         // Core drops the assets of a FAILED task run, so only emit when the task ends SUCCESS or WARNING.
-        if (snapshot != null && (status == JobStatus.SUCCEEDED || partialSuccessAsWarning)) {
+        // A clear or reset removes data, so a stream-level table fed by its source would be false lineage.
+        if (snapshot != null && ASSET_JOB_TYPES.contains(job.getConfigType()) && (status == JobStatus.SUCCEEDED || partialSuccessAsWarning)) {
             StreamAssets.emit(
                 runContext,
                 StreamAssets.plan(snapshot, StreamAssets.committed(metadata), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)

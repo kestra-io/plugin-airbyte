@@ -136,7 +136,7 @@ import io.kestra.core.models.annotations.PluginProperty;
                     level: ERROR
                     message: |
                       Airbyte job {{ outputs.sync.jobId }} ended {{ outputs.sync.job.status }}:
-                      {{ outputs.sync.job.failures[0].externalMessage }}
+                      {{ outputs.sync.job.failures[0].externalMessage ?? 'no failure message reported' }}
                       Logs: {{ outputs.sync.jobUrl }}
                 """
         )
