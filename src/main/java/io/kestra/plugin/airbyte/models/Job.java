@@ -17,6 +17,7 @@ public class Job {
     JobConfigType configType;
     String configId;
     Instant createdAt;
+    Instant startedAt;
     Instant updatedAt;
     JobStatus status;
     ResetConfig resetConfig;

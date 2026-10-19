@@ -48,6 +48,18 @@
 - Provides plugin components under `io.kestra.plugin.airbyte`.
 - Includes classes such as `JobStatus`, `AttemptFailureSummary`, `AttemptFailureReason`, `AttemptStatus`.
 
+## Self-hosted job outputs
+
+When `wait` is enabled, `io.kestra.plugin.airbyte.connections.Sync` and `CheckStatus` expose:
+
+- `job`: status, timing, attempt counts, `partialSuccess` and sanitized `failures` (`origin`, `type`, `externalMessage`, `retryable`, `stream`).
+- `attempts`: internal storage Ion file with one row per Airbyte attempt, including per-stream statistics.
+- `metadata`: `rowsSynced`, `bytesSynced`, `recordsRejected` and the source and destination tables with their row and byte counts.
+
+Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`.
+
+A job that does not end `SUCCEEDED` fails the task but keeps these outputs, so `errors` and `finally` branches and `allowFailure: true` can read them. With `onPartialSuccess: WARNING`, a `FAILED` job that committed records ends in `WARNING` instead. `internalMessage` and stack traces from Airbyte are never logged or returned, and `externalMessage` is truncated to 2 KiB. `finalJobStatus` is deprecated: use `job.status`.
+
 ## Documentation
 * Full documentation can be found under: [kestra.io/docs](https://kestra.io/docs)
 * Documentation for developing a plugin is included in the [Plugin Developer Guide](https://kestra.io/docs/plugin-developer-guide/)

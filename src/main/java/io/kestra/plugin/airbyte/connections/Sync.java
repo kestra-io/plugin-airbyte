@@ -11,6 +11,8 @@ import java.util.Set;
 
 import org.slf4j.Logger;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.http.HttpResponse;
@@ -19,14 +21,19 @@ import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.executions.metrics.Counter;
+import io.kestra.core.models.executions.metrics.Timer;
+import io.kestra.core.models.flows.State;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
+import io.kestra.core.models.tasks.RunnableTaskException;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
 import io.kestra.plugin.airbyte.models.JobConfigType;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobList;
 import io.kestra.plugin.airbyte.models.JobStatus;
+import io.kestra.plugin.airbyte.models.JobSummary;
+import io.kestra.plugin.airbyte.models.OnPartialSuccess;
 import io.kestra.plugin.airbyte.models.SyncMetadata;
 
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -42,7 +49,11 @@ import io.kestra.core.models.annotations.PluginProperty;
 @NoArgsConstructor
 @Schema(
     title = "Run an Airbyte connection sync",
-    description = "Starts a sync for an Airbyte connection and, by default, waits for the job to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`. If a sync is already running for the connection, the task adopts it and polls it to completion instead of failing or blindly re-triggering — see `onActiveSync`"
+    description = """
+        Starts a sync for an Airbyte connection and, by default, waits for the job to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`. If a sync is already running for the connection, the task adopts it and polls it to completion instead of failing or blindly re-triggering — see `onActiveSync`.
+
+        When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records
+        """
 )
 @Plugin(
     examples = {
@@ -99,6 +110,29 @@ import io.kestra.core.models.annotations.PluginProperty;
                     connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd
                     onActiveSync: FAIL
                 """
+        ),
+        @Example(
+            full = true,
+            title = "Handle a failed sync and tolerate partial success",
+            code = """
+                id: airbyte_sync_with_error_handling
+                namespace: company.team
+
+                tasks:
+                  - id: sync
+                    type: io.kestra.plugin.airbyte.connections.Sync
+                    url: http://localhost:8080
+                    connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd
+                    onPartialSuccess: WARNING
+
+                errors:
+                  - id: alert
+                    type: io.kestra.plugin.core.log.Log
+                    level: ERROR
+                    message: |
+                      Airbyte job {{ outputs.sync.jobId }} ended {{ outputs.sync.job.status }}:
+                      {{ outputs.sync.job.failures[0].externalMessage }}
+                """
         )
     },
     metrics = {
@@ -131,6 +165,23 @@ import io.kestra.core.models.annotations.PluginProperty;
             type = Counter.TYPE,
             unit = "message",
             description = "Number of state messages emitted (emitted when `wait` is enabled)"
+        ),
+        @Metric(
+            name = "records.rejected",
+            type = Counter.TYPE,
+            unit = "record",
+            description = "Number of records rejected by the destination, tagged by stream (emitted when `wait` is enabled)"
+        ),
+        @Metric(
+            name = "attempts.failed",
+            type = Counter.TYPE,
+            unit = "attempt",
+            description = "Number of failed attempts during the Airbyte job (emitted when `wait` is enabled)"
+        ),
+        @Metric(
+            name = "duration",
+            type = Timer.TYPE,
+            description = "Time between the start of the job and the end of its last attempt (emitted when `wait` is enabled)"
         )
     }
 )
@@ -184,6 +235,19 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     @Builder.Default
     @PluginProperty(group = "execution")
     private Property<OnActiveSync> onActiveSync = Property.ofValue(OnActiveSync.ADOPT);
+
+    @Schema(
+        title = "Behavior on partial success",
+        description = """
+            Controls what happens when the job ends `FAILED` but at least one attempt committed records (Airbyte's `partialSuccess`). Only applies when `wait` is enabled:
+            - `FAIL` (default): fail the task.
+            - `WARNING`: end the task in `WARNING` and return the outputs.
+            Any other non-successful outcome always fails the task.
+            """
+    )
+    @Builder.Default
+    @PluginProperty(group = "execution")
+    private Property<OnPartialSuccess> onPartialSuccess = Property.ofValue(OnPartialSuccess.FAIL);
 
     @Deprecated
     @Schema(
@@ -248,16 +312,29 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .applicationCredentials(getApplicationCredentials())
             .pollFrequency(pollFrequency)
             .maxDuration(maxDuration)
+            .onPartialSuccess(onPartialSuccess)
             .jobId(Property.ofValue(jobId.toString()))
             .build();
 
-        var checkStatusOutput = checkStatus.run(runContext);
+        try {
+            return fromCheckStatus(jobId, adopted, checkStatus.run(runContext));
+        } catch (RunnableTaskException e) {
+            if (e.getOutput() instanceof CheckStatus.Output failed) {
+                throw new RunnableTaskException(e.getMessage(), e, fromCheckStatus(jobId, adopted, failed));
+            }
+            throw e;
+        }
+    }
 
+    private static Output fromCheckStatus(Long jobId, boolean adopted, CheckStatus.Output checkStatusOutput) {
         return Output.builder()
             .jobId(jobId)
             .alreadyRunning(adopted)
             .adopted(adopted)
+            .job(checkStatusOutput.getJob())
+            .attempts(checkStatusOutput.getAttempts())
             .metadata(checkStatusOutput.getMetadata())
+            .state(checkStatusOutput.finalState().orElse(null))
             .build();
     }
 
@@ -372,9 +449,31 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         private final Boolean adopted;
 
         @Schema(
+            title = "Job summary",
+            description = "Status, timing, attempt counts and sanitized failure reasons of the Airbyte job. Only available when `wait` is enabled"
+        )
+        private final JobSummary job;
+
+        @Schema(
+            title = "Attempts file",
+            description = "Internal storage URI of an Ion file with one row per Airbyte attempt. Only available when `wait` is enabled"
+        )
+        @PluginProperty(internalStorageURI = true)
+        private final URI attempts;
+
+        @Schema(
             title = "Sync metadata",
             description = "Rows synced and source and destination tables affected by the completed Airbyte job. Only available when `wait` is enabled"
         )
         private final SyncMetadata metadata;
+
+        @JsonIgnore
+        @Getter(AccessLevel.NONE)
+        private final State.Type state;
+
+        @Override
+        public Optional<State.Type> finalState() {
+            return Optional.ofNullable(state);
+        }
     }
 }

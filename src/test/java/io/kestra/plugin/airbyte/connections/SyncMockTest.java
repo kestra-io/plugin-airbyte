@@ -13,6 +13,7 @@ import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.property.Property;
+import io.kestra.core.models.tasks.RunnableTaskException;
 import io.kestra.core.queues.QueueFactoryInterface;
 import io.kestra.core.queues.QueueInterface;
 import io.kestra.core.runners.RunContext;
@@ -21,6 +22,8 @@ import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnectionTest;
+import io.kestra.plugin.airbyte.models.AttemptFailureOrigin;
+import io.kestra.plugin.airbyte.models.AttemptFailureType;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
@@ -870,10 +873,13 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         );
 
         var task = checkStatusTask(wireMockRuntimeInfo, "420").build();
-        var exception = assertThrows(Exception.class, () -> task.run(runContextFactory.of(Map.of())));
+        var exception = assertThrows(RunnableTaskException.class, () -> task.run(runContextFactory.of(Map.of())));
 
-        assertThat(exception.getMessage(), containsString("failureType=transient_error"));
-        assertThat(exception.getMessage(), containsString("failureOrigin=unknown"));
-        assertThat(exception.getMessage(), not(containsString("failureType=null")));
+        assertThat(exception.getMessage(), containsString("[airbyte_platform/transient_error]"));
+        var failures = ((CheckStatus.Output) exception.getOutput()).getJob().getFailures();
+        assertThat(failures.size(), is(2));
+        assertThat(failures.get(0).getType(), is(AttemptFailureType.TRANSIENT_ERROR));
+        assertThat(failures.get(1).getOrigin(), is(AttemptFailureOrigin.UNKNOWN));
+        assertThat(failures.get(1).getType(), is(AttemptFailureType.HEARTBEAT_TIMEOUT));
     }
 }
