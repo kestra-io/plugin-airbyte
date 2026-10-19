@@ -7,6 +7,7 @@ import java.util.EnumSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Callable;
 
 import org.slf4j.Logger;
 
@@ -17,6 +18,7 @@ import com.airbyte.api.models.operations.GetDestinationRequest;
 import com.airbyte.api.models.operations.GetJobRequest;
 import com.airbyte.api.models.operations.GetJobResponse;
 import com.airbyte.api.models.operations.GetSourceRequest;
+import com.airbyte.api.models.shared.ConnectionResponse;
 import com.airbyte.api.models.shared.JobCreateRequest;
 import com.airbyte.api.models.shared.JobResponse;
 import com.airbyte.api.models.shared.JobStatusEnum;
@@ -197,31 +199,51 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
     }
 
     private Optional<ConnectionSnapshot> fetchSnapshot(RunContext runContext, String rConnectionId) {
+        Airbyte client;
+        ConnectionResponse connectionResponse;
         try {
-            var client = this.snapshotClient(runContext);
+            client = this.snapshotClient(runContext);
             var connection = client.connections().getConnection(new GetConnectionRequest(rConnectionId));
             this.validate(connection.rawResponse());
-            var connectionResponse = connection.connectionResponse().orElseThrow(() -> new IllegalStateException("Empty connection response"));
-
-            var source = client.sources().getSource(new GetSourceRequest(connectionResponse.sourceId()));
-            this.validate(source.rawResponse());
-
-            var destination = client.destinations().getDestination(new GetDestinationRequest(connectionResponse.destinationId()));
-            this.validate(destination.rawResponse());
-
-            return Optional.of(
-                CloudSnapshots.toSnapshot(
-                    connectionResponse,
-                    source.sourceResponse().orElseThrow(() -> new IllegalStateException("Empty source response")),
-                    destination.destinationResponse().orElseThrow(() -> new IllegalStateException("Empty destination response"))
-                )
-            );
+            connectionResponse = connection.connectionResponse().orElseThrow(() -> new IllegalStateException("Empty connection response"));
         } catch (Exception e) {
             runContext.logger().warn(
-                "Unable to read the configuration of connection {}, continuing without connection snapshot, job link and assets: {}. Check that the credentials can read connections, sources and destinations",
+                "Unable to read connection {} from Airbyte Cloud, continuing without connection snapshot, job link and assets: {}. Check that the credentials can read connections",
                 rConnectionId, e.getMessage()
             );
             return Optional.empty();
+        }
+
+        // The SDK only binds the configuration of connectors it knows, so a newer connector must not cost us the connection itself.
+        var source = readDetails(
+            runContext, "source", connectionResponse.sourceId(), () ->
+            {
+                var response = client.sources().getSource(new GetSourceRequest(connectionResponse.sourceId()));
+                this.validate(response.rawResponse());
+                return response.sourceResponse().orElseThrow(() -> new IllegalStateException("Empty source response"));
+            }
+        );
+        var destination = readDetails(
+            runContext, "destination", connectionResponse.destinationId(), () ->
+            {
+                var response = client.destinations().getDestination(new GetDestinationRequest(connectionResponse.destinationId()));
+                this.validate(response.rawResponse());
+                return response.destinationResponse().orElseThrow(() -> new IllegalStateException("Empty destination response"));
+            }
+        );
+
+        return Optional.of(CloudSnapshots.toSnapshot(connectionResponse, source, destination));
+    }
+
+    private <T> T readDetails(RunContext runContext, String kind, String id, Callable<T> read) {
+        try {
+            return read.call();
+        } catch (Exception e) {
+            runContext.logger().warn(
+                "Could not read the Airbyte Cloud {} {} (the SDK may not recognise this connector's configuration); continuing without {} details: {}",
+                kind, id, kind, e.getMessage()
+            );
+            return null;
         }
     }
 

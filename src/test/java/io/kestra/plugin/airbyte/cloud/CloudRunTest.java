@@ -131,6 +131,31 @@ class CloudRunTest {
     }
 
     @Test
+    void unreadable_source_configuration_keeps_the_connection_snapshot(WireMockRuntimeInfo wiremock) throws Exception {
+        stubJob(54, "succeeded");
+        stubSnapshot();
+        stubFor(
+            get(urlPathEqualTo("/v1/sources/src-1"))
+                .willReturn(okJson("""
+                    {
+                      "sourceId": "src-1", "name": "new connector", "sourceType": "brand-new", "definitionId": "def-src", "workspaceId": "ws-1",
+                      "createdAt": 1700000000, "configuration": { "sourceType": "brand-new", "unknown_shape": true }
+                    }
+                    """))
+        );
+
+        var task = task(wiremock);
+        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        var out = task.run(runContext);
+
+        assertThat(out.getJobUrl(), is("https://cloud.airbyte.com/workspaces/ws-1/connections/" + CONNECTION_ID + "/timeline?openLogs=true&jobId=54"));
+        assertThat(out.getConnection().getSourceType(), nullValue());
+        assertThat(out.getConnection().getDestinationType(), is("snowflake"));
+        assertThat(out.getConnection().getStreamCount(), is(2));
+        Mockito.verify(runContext, Mockito.atLeastOnce()).assets();
+    }
+
+    @Test
     void failed_job_throws_with_outputs_and_emits_no_assets(WireMockRuntimeInfo wiremock) throws Exception {
         stubJob(52, "failed");
         stubSnapshot();

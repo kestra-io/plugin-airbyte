@@ -16,7 +16,8 @@ import io.kestra.plugin.airbyte.models.StreamConfig;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
 
 /**
- * Maps the Airbyte Cloud API responses onto the shared snapshot models. {@code configuration()} of sources and destinations is never read.
+ * Maps the Airbyte Cloud API responses onto the shared snapshot models. {@code configuration()} of sources and destinations is never read,
+ * and a null source or destination is allowed when the SDK could not read it.
  */
 public final class CloudSnapshots {
     public static final String WEBAPP_URL = "https://cloud.airbyte.com";
@@ -43,24 +44,28 @@ public final class CloudSnapshots {
                     .syncCatalog(Connection.SyncCatalog.builder().streams(streams).build())
                     .build()
             )
-            .source(
-                Source.builder()
-                    .sourceId(source.sourceId())
-                    .name(source.name())
-                    .sourceName(source.sourceType())
-                    .sourceDefinitionId(source.definitionId())
-                    .workspaceId(source.workspaceId())
-                    .build()
-            )
-            .destination(
-                Destination.builder()
-                    .destinationId(destination.destinationId())
-                    .name(destination.name())
-                    .destinationName(destination.destinationType())
-                    .destinationDefinitionId(destination.definitionId())
-                    .workspaceId(destination.workspaceId())
-                    .build()
-            )
+            .source(source == null ? null : toSource(source))
+            .destination(destination == null ? null : toDestination(destination))
+            .build();
+    }
+
+    private static Source toSource(SourceResponse source) {
+        return Source.builder()
+            .sourceId(source.sourceId())
+            .name(source.name())
+            .sourceName(source.sourceType())
+            .sourceDefinitionId(source.definitionId())
+            .workspaceId(source.workspaceId())
+            .build();
+    }
+
+    private static Destination toDestination(DestinationResponse destination) {
+        return Destination.builder()
+            .destinationId(destination.destinationId())
+            .name(destination.name())
+            .destinationName(destination.destinationType())
+            .destinationDefinitionId(destination.definitionId())
+            .workspaceId(destination.workspaceId())
             .build();
     }
 

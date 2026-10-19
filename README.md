@@ -68,7 +68,7 @@ With assets enabled (Enterprise Edition only), each replicated stream that commi
 
 ## Airbyte Cloud
 
-`cloud.jobs.Sync` and `cloud.jobs.Reset` return `job` plus `connection`, `connectionSnapshot` and `jobUrl` (link to the job in Airbyte Cloud). `Sync` emits table assets for the replicated streams when the job succeeds, with the same id format as self-hosted; `Reset` emits none. The Airbyte Cloud public API only reports `bytesSynced`, `rowsSynced` and `duration` for a job, so there are no per-stream or per-attempt statistics, no `attempts` output, no per-attempt sub task runs and no `onPartialSuccess`.
+`cloud.jobs.Sync` and `cloud.jobs.Reset` return `job` plus `connection`, `connectionSnapshot` and `jobUrl` (link to the job in Airbyte Cloud). `Sync` emits table assets for the replicated streams when the job succeeds, with the same id format as self-hosted; `Reset` emits none. The Airbyte Cloud public API only reports `bytesSynced`, `rowsSynced` and `duration` for a job, so there are no per-stream or per-attempt statistics, no `attempts` output, no per-attempt sub task runs and no `onPartialSuccess`. On Airbyte Cloud, the SDK only reads sources and destinations of connectors it knows: if one cannot be read, the task logs a warning and still returns the connection, `jobUrl` and assets, with that side's connector type left `null`.
 
 **Migration note:** `cloud.jobs.Sync` and `cloud.jobs.Reset` now fail when the Airbyte job ends `FAILED` or `CANCELLED`. Outputs remain available; use `allowFailure: true` or an `errors` branch to keep the previous behavior.
 
