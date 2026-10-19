@@ -3,7 +3,7 @@ import { setup } from "@storybook/vue3";
 import { within, expect, waitFor, userEvent } from "storybook/test";
 import { createI18n } from "vue-i18n";
 import KestraDesignSystem from "@kestra-io/design-system";
-import SyncDrawer from "../../../src/components/SyncDrawer.vue";
+import SyncDetails from "../../../src/components/SyncDetails.vue";
 import {
     adoptedOutputs,
     cloudOutputs,
@@ -26,16 +26,16 @@ setup((app) => {
     app.use(KestraDesignSystem);
 });
 
-const meta: Meta<typeof SyncDrawer> = {
-    title: "Plugin UI / topology-task-drawer / SyncDrawer",
-    component: SyncDrawer,
+const meta: Meta<typeof SyncDetails> = {
+    title: "Plugin UI / topology-task-modal / SyncDetails",
+    component: SyncDetails,
     tags: ["autodocs"],
 };
 
 export default meta;
-type Story = StoryObj<typeof SyncDrawer>;
+type Story = StoryObj<typeof SyncDetails>;
 
-const flow = { namespace: "company.team", flowId: "airbyte-sync", displayMode: "full" };
+const flow = { namespace: "company.team", flowId: "airbyte-sync" };
 
 export const NoExecution: Story = {
     name: "No execution shows settings and an empty state",

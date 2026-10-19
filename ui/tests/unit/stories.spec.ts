@@ -2,13 +2,13 @@ import { describe, test } from "vitest";
 import { composeStories } from "@storybook/vue3";
 
 import * as topologyStories from "../storybook/components/SyncTopologyDetails.stories";
-import * as drawerStories from "../storybook/components/SyncDrawer.stories";
+import * as detailsStories from "../storybook/components/SyncDetails.stories";
 
 // composeStories turns each exported story into a portable, runnable component. Story.run() renders
 // it and executes its `play` function in jsdom, so no browser is needed.
 const suites = {
     SyncTopologyDetails: composeStories(topologyStories),
-    SyncDrawer: composeStories(drawerStories),
+    SyncDetails: composeStories(detailsStories),
 };
 
 for (const [suite, stories] of Object.entries(suites)) {

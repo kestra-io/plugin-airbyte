@@ -14,12 +14,12 @@ export default defaultViteConfig({
                     height: 120,
                     // with execution: route, streams, rows, bytes, attempts, status (6 rows)
                     heightWithExecution: 245,
-                    customAction: { label: "Show Details", taskProp: "connectionId", lang: "yaml" },
+                    customAction: { label: "Airbyte details" },
                 },
             },
             {
-                slotName: "topology-task-drawer",
-                path: "./src/components/SyncDrawer.vue",
+                slotName: "topology-task-modal",
+                path: "./src/components/SyncDetails.vue",
             },
         ],
         "connections.CheckStatus": [
@@ -32,12 +32,12 @@ export default defaultViteConfig({
                     height: 120,
                     // with execution: route, streams, rows, bytes, attempts, status (6 rows)
                     heightWithExecution: 245,
-                    customAction: { label: "Show Details", taskProp: "jobId", lang: "yaml" },
+                    customAction: { label: "Airbyte details" },
                 },
             },
             {
-                slotName: "topology-task-drawer",
-                path: "./src/components/SyncDrawer.vue",
+                slotName: "topology-task-modal",
+                path: "./src/components/SyncDetails.vue",
             },
         ],
         "cloud.jobs.Sync": [
@@ -50,12 +50,12 @@ export default defaultViteConfig({
                     height: 120,
                     // with execution: route, streams, rows, bytes, attempts, status (6 rows)
                     heightWithExecution: 245,
-                    customAction: { label: "Show Details", taskProp: "connectionId", lang: "yaml" },
+                    customAction: { label: "Airbyte details" },
                 },
             },
             {
-                slotName: "topology-task-drawer",
-                path: "./src/components/SyncDrawer.vue",
+                slotName: "topology-task-modal",
+                path: "./src/components/SyncDetails.vue",
             },
         ],
         "cloud.jobs.Reset": [
@@ -68,12 +68,12 @@ export default defaultViteConfig({
                     height: 120,
                     // with execution: route, streams, rows, bytes, attempts, status (6 rows)
                     heightWithExecution: 245,
-                    customAction: { label: "Show Details", taskProp: "connectionId", lang: "yaml" },
+                    customAction: { label: "Airbyte details" },
                 },
             },
             {
-                slotName: "topology-task-drawer",
-                path: "./src/components/SyncDrawer.vue",
+                slotName: "topology-task-modal",
+                path: "./src/components/SyncDetails.vue",
             },
         ],
     },

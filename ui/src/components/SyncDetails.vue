@@ -67,7 +67,7 @@ const { t } = useI18n({
     },
 });
 
-const props = defineProps<KnownSlotProps["topology-task-drawer"]>();
+const props = defineProps<KnownSlotProps["topology-task-modal"]>();
 const {
     taskRunState,
     hasExecution,
@@ -210,7 +210,7 @@ const groupedFailures = computed(() => {
     <!-- The plugin bundles its own Element Plus, which does not see the host's "kel" namespace: without it the
          design-system styles (tag, alert) never match the rendered "el-*" classes. -->
     <ElConfigProvider namespace="kel">
-        <div class="airbyte-drawer">
+        <div class="airbyte-details">
             <div v-if="hasOutputs || running" class="airbyte-header">
                 <KsTag v-if="running" size="small" type="info">{{ t("running") }}</KsTag>
                 <KsTag v-else size="small" :type="statusType">{{
@@ -281,43 +281,45 @@ const groupedFailures = computed(() => {
                     <summary class="airbyte-section__title">
                         {{ t("streams") }} ({{ streams.length }})
                     </summary>
-                    <table class="airbyte-streams">
-                        <thead>
-                            <tr>
-                                <th>{{ t("stream") }}</th>
-                                <th>{{ t("emitted") }}</th>
-                                <th>{{ t("committed") }}</th>
-                                <th>{{ t("bytes") }}</th>
-                                <th>{{ t("rejected") }}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="stream in visibleStreams" :key="streamLabel(stream)">
-                                <td>
-                                    {{ streamLabel(stream) }}
-                                    <div class="airbyte-bar">
-                                        <div
-                                            class="airbyte-bar__fill"
-                                            :style="{ width: barWidth(stream.rows) }"
-                                        />
-                                    </div>
-                                </td>
-                                <td>{{ formatNumber(stream.emitted) }}</td>
-                                <td>{{ formatNumber(stream.rows) }}</td>
-                                <td>{{ formatBytes(stream.bytes) }}</td>
-                                <td>{{ formatNumber(stream.rejected) }}</td>
-                            </tr>
-                        </tbody>
-                        <tfoot>
-                            <tr>
-                                <th>{{ t("total") }}</th>
-                                <th>{{ formatNumber(totals.emitted) }}</th>
-                                <th>{{ formatNumber(totals.rows) }}</th>
-                                <th>{{ formatBytes(totals.bytes) }}</th>
-                                <th>{{ formatNumber(totals.rejected) }}</th>
-                            </tr>
-                        </tfoot>
-                    </table>
+                    <div class="airbyte-scroll">
+                        <table class="airbyte-streams">
+                            <thead>
+                                <tr>
+                                    <th>{{ t("stream") }}</th>
+                                    <th>{{ t("emitted") }}</th>
+                                    <th>{{ t("committed") }}</th>
+                                    <th>{{ t("bytes") }}</th>
+                                    <th>{{ t("rejected") }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="stream in visibleStreams" :key="streamLabel(stream)">
+                                    <td>
+                                        {{ streamLabel(stream) }}
+                                        <div class="airbyte-bar">
+                                            <div
+                                                class="airbyte-bar__fill"
+                                                :style="{ width: barWidth(stream.rows) }"
+                                            />
+                                        </div>
+                                    </td>
+                                    <td>{{ formatNumber(stream.emitted) }}</td>
+                                    <td>{{ formatNumber(stream.rows) }}</td>
+                                    <td>{{ formatBytes(stream.bytes) }}</td>
+                                    <td>{{ formatNumber(stream.rejected) }}</td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <th>{{ t("total") }}</th>
+                                    <th>{{ formatNumber(totals.emitted) }}</th>
+                                    <th>{{ formatNumber(totals.rows) }}</th>
+                                    <th>{{ formatBytes(totals.bytes) }}</th>
+                                    <th>{{ formatNumber(totals.rejected) }}</th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
                     <button
                         v-if="streams.length > MAX_STREAMS"
                         type="button"
@@ -345,7 +347,7 @@ const groupedFailures = computed(() => {
 </template>
 
 <style scoped>
-.airbyte-drawer {
+.airbyte-details {
     font-size: var(--ks-font-size-xs);
 }
 
@@ -425,6 +427,10 @@ details[open] > .airbyte-section__title::before {
     margin: 0;
     padding: 0;
     list-style: none;
+}
+
+.airbyte-scroll {
+    overflow-x: auto;
 }
 
 .airbyte-streams {

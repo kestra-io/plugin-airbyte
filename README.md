@@ -74,7 +74,7 @@ With assets enabled (Enterprise Edition only), each replicated stream that commi
 
 ## UI
 
-On Kestra 2.0 and later (open the drawer with the "Show Details" action of the node), `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset` get a topology card and a task drawer. The card shows the source and destination types, stream count, rows and bytes synced, attempts and status. The drawer shows a status header with a link to the job in Airbyte, an alert for failed jobs, the task settings (authentication shows the method only, never credentials), the job summary, grouped failure reasons, a per-stream table with emitted and committed rows, bytes and rejected records, and the connection summary. Airbyte Cloud jobs show job totals only.
+On Kestra 2.0 and later (open the dialog with the "Airbyte details" action of the node), `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset` get a topology card and a details dialog. The card shows the source and destination types, stream count, rows and bytes synced, attempts and status. The dialog shows a status header with a link to the job in Airbyte, an alert for failed jobs, the task settings (authentication shows the method only, never credentials), the job summary, grouped failure reasons, a per-stream table with emitted and committed rows, bytes and rejected records, and the connection summary. Airbyte Cloud jobs show job totals only.
 
 The UI only displays inline outputs and metrics: the contents of the `attempts` and `connectionSnapshot` files are not shown. Kestra 1.3.x ignores the UI. See [`ui/README.md`](ui/README.md) for local development.
 

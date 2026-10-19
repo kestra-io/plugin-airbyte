@@ -1,14 +1,14 @@
 import { describe, expect, test } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createI18n } from "vue-i18n";
-import SyncDrawer from "../../src/components/SyncDrawer.vue";
+import SyncDetails from "../../src/components/SyncDetails.vue";
 import { failedOutputs, fetchers, task } from "../storybook/fixtures";
 
-// The host mounts the drawer without installing the design system in the plugin, so Element Plus uses
+// The host mounts the details component without installing the design system in the plugin, so Element Plus uses
 // its default "el" namespace unless the component sets "kel", which is the one the design-system CSS targets.
-describe("SyncDrawer in the host", () => {
+describe("SyncDetails in the host", () => {
     test("renders tags and alert with the design-system namespace", async () => {
-        const wrapper = mount(SyncDrawer, {
+        const wrapper = mount(SyncDetails, {
             props: { task, namespace: "ns", flowId: "flow", ...fetchers(failedOutputs) } as any,
             global: {
                 plugins: [createI18n({ legacy: false, locale: "en", messages: { en: {} } })],

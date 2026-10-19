@@ -55,7 +55,7 @@ Infrastructure dependencies (Docker Compose services):
 plugin-airbyte/
 ├── src/main/java/io/kestra/plugin/airbyte/models/
 ├── src/test/java/io/kestra/plugin/airbyte/models/
-├── ui/                      # Vue plugin UI (topology card and drawer), built into src/main/resources/plugin-ui
+├── ui/                      # Vue plugin UI (topology card and details dialog), built into src/main/resources/plugin-ui
 ├── build.gradle
 └── README.md
 ```
