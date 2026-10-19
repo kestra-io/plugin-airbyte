@@ -29,7 +29,7 @@ public class JobSummary {
     @Schema(title = "Ended at", description = "End time of the last attempt")
     Instant endedAt;
 
-    @Schema(title = "Duration", description = "Time between the job start and the end of its last attempt")
+    @Schema(title = "Duration", description = "Time between the job start and the end of its last attempt. Templates render it as a number of seconds, for example `31.0`")
     Duration duration;
 
     @Schema(title = "Attempt count")

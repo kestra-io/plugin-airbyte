@@ -16,4 +16,17 @@ public class ConnectionSnapshot {
     Connection connection;
     Source source;
     Destination destination;
+
+    /**
+     * Airbyte OSS does not always return the workspace on the connection, but does on its source and destination.
+     */
+    public String resolvedWorkspaceId() {
+        if (connection != null && connection.getWorkspaceId() != null) {
+            return connection.getWorkspaceId();
+        }
+        if (source != null && source.getWorkspaceId() != null) {
+            return source.getWorkspaceId();
+        }
+        return destination == null ? null : destination.getWorkspaceId();
+    }
 }

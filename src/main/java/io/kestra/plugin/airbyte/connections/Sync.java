@@ -57,7 +57,7 @@ import io.kestra.core.models.annotations.PluginProperty;
 
         When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records.
 
-        The task also exposes the `connection` that ran the job, a `connectionSnapshot` file (connector configurations are never included) and a `jobUrl` to the job logs in the Airbyte web app. When Kestra runs with assets enabled (Enterprise Edition), each replicated stream that committed records is emitted as a table asset with the source stream as its input
+        The task also exposes the `connection` that ran the job, a `connectionSnapshot` file (connector configurations are never included) and a `jobUrl` to the job logs in the Airbyte web app. When Kestra runs with assets enabled (Enterprise Edition), each replicated stream that committed records is emitted as a table asset with the source stream as its input. Assets are emitted only when the task ends in SUCCESS or WARNING, because Kestra drops the assets of a failed task run, and their counts are the same per-stream figures as `metadata`, so a job that ended in WARNING emits no asset
         """
 )
 @Plugin(
@@ -362,7 +362,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
                 .connection(ConnectionSummary.from(snapshot))
                 .jobUrl(
                     ConnectionSnapshots.jobUrl(
-                        webappBaseUrl(runContext), snapshot.getConnection().getWorkspaceId(), snapshot.getConnection().getConnectionId(), jobId, null
+                        webappBaseUrl(runContext), snapshot.resolvedWorkspaceId(), snapshot.getConnection().getConnectionId(), jobId, null
                     )
                 );
         }

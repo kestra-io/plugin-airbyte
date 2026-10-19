@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.slf4j.event.Level;
 
 import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
@@ -13,6 +14,7 @@ import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.property.Property;
+import io.kestra.core.models.tasks.RunnableTaskException;
 import io.kestra.core.queues.QueueFactoryInterface;
 import io.kestra.core.queues.QueueInterface;
 import io.kestra.core.runners.RunContextFactory;
@@ -29,6 +31,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
 @WireMockTest
@@ -45,6 +48,10 @@ class SnapshotOutputsTest {
     private QueueInterface<LogEntry> logQueue;
 
     private void stubSnapshotEndpoints() {
+        stubSnapshotEndpoints(true);
+    }
+
+    private void stubSnapshotEndpoints(boolean connectionHasWorkspace) {
         stubFor(
             post(urlPathMatching("/api/v1/connections/get/?"))
                 .withRequestBody(matchingJsonPath("$.connectionId", equalTo(CONNECTION_ID)))
@@ -52,7 +59,7 @@ class SnapshotOutputsTest {
                     {
                       "connectionId": "%s",
                       "name": "pg to snowflake",
-                      "workspaceId": "ws-1",
+                      %s
                       "sourceId": "src-1",
                       "destinationId": "dst-1",
                       "status": "active",
@@ -70,7 +77,7 @@ class SnapshotOutputsTest {
                         ]
                       }
                     }
-                    """.formatted(CONNECTION_ID)))
+                    """.formatted(CONNECTION_ID, connectionHasWorkspace ? "\"workspaceId\": \"ws-1\"," : "")))
         );
         stubFor(
             post(urlPathMatching("/api/v1/sources/get/?"))
@@ -157,6 +164,37 @@ class SnapshotOutputsTest {
         var rendered = out.toMap().toString() + out.getConnection();
         assertThat(rendered, not(containsString(SECRET_PASSWORD)));
         assertThat(rendered, not(containsString(SECRET_HOST)));
+    }
+
+    @Test
+    void job_url_falls_back_to_the_source_workspace_when_the_connection_has_none(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints(false);
+        stubTrigger(96);
+        stubJob(96, "succeeded");
+
+        var task = sync(wiremock).build();
+        var out = task.run(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+
+        assertThat(out.getConnection().getWorkspaceId(), is("ws-1"));
+        assertThat(out.getJobUrl(), is(wiremock.getHttpBaseUrl() + "/workspaces/ws-1/connections/" + CONNECTION_ID + "/timeline?openLogs=true&jobId=96&attemptNumber=0"));
+    }
+
+    @Test
+    void assets_are_only_emitted_when_the_task_does_not_fail(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubTrigger(97);
+        stubJob(97, "succeeded");
+
+        var task = sync(wiremock).build();
+        var succeeded = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        task.run(succeeded);
+        Mockito.verify(succeeded, Mockito.atLeastOnce()).assets();
+
+        stubTrigger(98);
+        stubJob(98, "failed");
+        var failed = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        assertThrows(RunnableTaskException.class, () -> task.run(failed));
+        Mockito.verify(failed, Mockito.never()).assets();
     }
 
     @Test

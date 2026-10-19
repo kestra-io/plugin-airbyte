@@ -1,6 +1,7 @@
 package io.kestra.plugin.airbyte;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,7 @@ import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionStream;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
+import io.kestra.plugin.airbyte.models.SyncMetadata;
 
 /**
  * Lineage assets of a job: one {@code Table} per replicated stream, fed by the matching source stream.
@@ -30,6 +32,22 @@ public final class StreamAssets {
     }
 
     public record Committed(Long records, Long bytes) {
+    }
+
+    /**
+     * Same per-stream counts as the job's {@code metadata}, so assets and outputs can never disagree.
+     */
+    public static Map<StreamDescriptor, Committed> committed(SyncMetadata metadata) {
+        var committed = new HashMap<StreamDescriptor, Committed>();
+        if (metadata != null && metadata.getDestination() != null) {
+            metadata.getDestination().forEach(
+                table -> committed.put(
+                    StreamDescriptor.builder().name(table.getName()).namespace(table.getNamespace()).build(),
+                    new Committed(table.getRows(), table.getBytes())
+                )
+            );
+        }
+        return committed;
     }
 
     public record Planned(AssetIdentifier input, Custom output) {
@@ -123,7 +141,7 @@ public final class StreamAssets {
         put(metadata, "lastJobStatus", jobStatus);
         if (counts != null) {
             put(metadata, "recordsCommitted", counts.records());
-            put(metadata, "bytesCommitted", counts.bytes());
+            put(metadata, "bytes", counts.bytes());
         }
 
         return Custom.builder()

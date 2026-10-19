@@ -14,6 +14,7 @@ export default defaultViteConfig({
                     height: 120,
                     // with execution: route, streams, rows, bytes, attempts, status (6 rows)
                     heightWithExecution: 245,
+                    customAction: { label: "Show Details", taskProp: "connectionId", lang: "yaml" },
                 },
             },
             {
@@ -31,6 +32,7 @@ export default defaultViteConfig({
                     height: 120,
                     // with execution: route, streams, rows, bytes, attempts, status (6 rows)
                     heightWithExecution: 245,
+                    customAction: { label: "Show Details", taskProp: "connectionId", lang: "yaml" },
                 },
             },
             {
@@ -48,6 +50,7 @@ export default defaultViteConfig({
                     height: 120,
                     // with execution: route, streams, rows, bytes, attempts, status (6 rows)
                     heightWithExecution: 245,
+                    customAction: { label: "Show Details", taskProp: "connectionId", lang: "yaml" },
                 },
             },
             {
@@ -65,6 +68,7 @@ export default defaultViteConfig({
                     height: 120,
                     // with execution: route, streams, rows, bytes, attempts, status (6 rows)
                     heightWithExecution: 245,
+                    customAction: { label: "Show Details", taskProp: "connectionId", lang: "yaml" },
                 },
             },
             {

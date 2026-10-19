@@ -61,7 +61,7 @@ public class ConnectionSummary {
             .name(connection.getName())
             .status(connection.getStatus())
             .scheduleType(connection.getScheduleType())
-            .workspaceId(connection.getWorkspaceId())
+            .workspaceId(snapshot.resolvedWorkspaceId())
             .sourceId(connection.getSourceId())
             .sourceName(source == null ? null : source.getName())
             .sourceType(source == null ? null : source.getSourceName())

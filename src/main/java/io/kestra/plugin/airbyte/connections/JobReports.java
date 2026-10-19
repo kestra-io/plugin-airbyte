@@ -6,7 +6,6 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -22,7 +21,6 @@ import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.WorkerTaskResult;
 import io.kestra.core.serializers.FileSerde;
 import io.kestra.core.utils.IdUtils;
-import io.kestra.plugin.airbyte.StreamAssets;
 import io.kestra.plugin.airbyte.models.Attempt;
 import io.kestra.plugin.airbyte.models.AttemptFailureSummary;
 import io.kestra.plugin.airbyte.models.AttemptInfo;
@@ -33,7 +31,6 @@ import io.kestra.plugin.airbyte.models.FailureSummary;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobStatus;
 import io.kestra.plugin.airbyte.models.JobSummary;
-import io.kestra.plugin.airbyte.models.StreamDescriptor;
 
 final class JobReports {
     private JobReports() {
@@ -119,23 +116,6 @@ final class JobReports {
             }
         }
         return runContext.storage().putFile(file);
-    }
-
-    static Map<StreamDescriptor, StreamAssets.Committed> committed(JobInfo jobInfo) {
-        var committed = new HashMap<StreamDescriptor, StreamAssets.Committed>();
-        attemptList(jobInfo).stream()
-            .flatMap(attempt -> Optional.ofNullable(attempt.getStreamStats()).orElseGet(List::of).stream())
-            .filter(stats -> stats != null && stats.getStats() != null)
-            .forEach(stats ->
-            {
-                var key = StreamDescriptor.builder().name(stats.getStreamName()).namespace(stats.getStreamNamespace()).build();
-                committed.merge(
-                    key,
-                    new StreamAssets.Committed(stats.getStats().getRecordsCommitted(), stats.getStats().getBytesCommitted()),
-                    (left, right) -> new StreamAssets.Committed(sum(left.records(), right.records()), sum(left.bytes(), right.bytes()))
-                );
-            });
-        return committed;
     }
 
     static void emitAttemptTaskRuns(RunContext runContext, JobInfo jobInfo, List<AttemptRow> rows) {

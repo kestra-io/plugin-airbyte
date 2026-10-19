@@ -17,6 +17,7 @@ import io.kestra.plugin.airbyte.models.ConnectionStream;
 import io.kestra.plugin.airbyte.models.Destination;
 import io.kestra.plugin.airbyte.models.StreamConfig;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
+import io.kestra.plugin.airbyte.models.SyncMetadata;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -76,7 +77,7 @@ class StreamAssetsTest {
         assertThat(table.getDisplayName(), is("customers"));
         assertThat(table.getMetadata().get("system"), is("Snowflake"));
         assertThat(table.getMetadata().get("recordsCommitted"), is(5L));
-        assertThat(table.getMetadata().get("bytesCommitted"), is(50L));
+        assertThat(table.getMetadata().get("bytes"), is(50L));
         assertThat(table.getMetadata().get("lastJobId"), is(12L));
         assertThat(table.getMetadata().get("syncMode"), is("incremental"));
 
@@ -160,6 +161,28 @@ class StreamAssetsTest {
     }
 
     @Test
+    void asset_counts_come_from_the_job_metadata() {
+        var metadata = SyncMetadata.builder()
+            .destination(
+                List.of(
+                    SyncMetadata.Table.builder().name("customers").namespace("public").rows(5L).bytes(50L).build(),
+                    SyncMetadata.Table.builder().name("empty").namespace("public").rows(0L).build()
+                )
+            )
+            .build();
+
+        var planned = StreamAssets.plan(
+            snapshot("source", null, null, stream("customers", "public", null), stream("empty", "public", null)),
+            StreamAssets.committed(metadata), 12L, "succeeded", true
+        );
+
+        assertThat(planned.size(), is(1));
+        assertThat(planned.getFirst().output().getMetadata().get("recordsCommitted"), is(5L));
+        assertThat(planned.getFirst().output().getMetadata().get("bytes"), is(50L));
+        assertThat(StreamAssets.committed(null).isEmpty(), is(true));
+    }
+
+    @Test
     void job_url_uses_the_timeline_route() {
         assertThat(
             ConnectionSnapshots.jobUrl("https://airbyte.example.com", "ws-1", "conn-1", 42L, 2),
@@ -187,6 +210,11 @@ class StreamAssetsTest {
 
         var captor = ArgumentCaptor.forClass(AssetEmit.class);
         verify(emitter, times(2)).emit(captor.capture());
+        captor.getAllValues().forEach(emit ->
+        {
+            assertThat(emit.inputs().size(), is(1));
+            assertThat(emit.outputs().size(), is(1));
+        });
         assertThat(captor.getAllValues().getFirst().inputs().getFirst().id(), is("src-1.public.customers"));
         assertThat(captor.getAllValues().getFirst().outputs().getFirst().getId(), is("dst-1.public.customers"));
         assertThat(captor.getAllValues().get(1).outputs().getFirst().getId(), is("dst-1.public.orders"));

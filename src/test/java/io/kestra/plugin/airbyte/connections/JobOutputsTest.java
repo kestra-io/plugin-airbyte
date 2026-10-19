@@ -168,6 +168,49 @@ class JobOutputsTest {
     }
 
     @Test
+    void bytes_fall_back_to_emitted_bytes_when_bytes_committed_is_absent(WireMockRuntimeInfo wiremock) throws Exception {
+        stubJob(
+            79, """
+                {
+                  "job": { "id": 79, "configType": "sync", "configId": "%s", "status": "succeeded", "createdAt": 1700000000 },
+                  "attempts": [
+                    { "attempt": { "id": 0, "status": "succeeded", "bytesSynced": 87383, "recordsSynced": 15,
+                        "totalStats": { "bytesEmitted": 87383 },
+                        "streamStats": [
+                          { "streamName": "users", "streamNamespace": "public", "stats": { "recordsEmitted": 10, "recordsCommitted": 10, "bytesEmitted": 60000 } },
+                          { "streamName": "purchases", "streamNamespace": "public", "stats": { "recordsEmitted": 5, "recordsCommitted": 5, "bytesEmitted": 27383 } }
+                        ] },
+                      "logs": { "logLines": [] } }
+                  ]
+                }
+                """.formatted(CONNECTION_ID)
+        );
+
+        var task = checkStatus(wiremock, 79).build();
+        var metadata = task.run(runContext(task)).getMetadata();
+
+        assertThat(metadata.getBytesSynced(), is(87383L));
+        assertThat(metadata.getDestination().stream().map(table -> table.getBytes()).toList(), contains(60000L, 27383L));
+    }
+
+    @Test
+    void total_bytes_fall_back_to_total_stats_without_attempt_bytes(WireMockRuntimeInfo wiremock) throws Exception {
+        stubJob(
+            80, """
+                {
+                  "job": { "id": 80, "configType": "sync", "status": "succeeded" },
+                  "attempts": [
+                    { "attempt": { "id": 0, "status": "succeeded", "totalStats": { "bytesEmitted": 321 } }, "logs": { "logLines": [] } }
+                  ]
+                }
+                """
+        );
+
+        var task = checkStatus(wiremock, 80).build();
+        assertThat(task.run(runContext(task)).getMetadata().getBytesSynced(), is(321L));
+    }
+
+    @Test
     void checkStatus_fails_with_outputs_kept_when_job_failed(WireMockRuntimeInfo wiremock) throws Exception {
         stubJob(72, jobsGet(72, "failed", "failed", "failed", false));
 

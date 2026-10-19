@@ -238,7 +238,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
                 .connection(ConnectionSummary.from(value))
                 .jobUrl(
                     ConnectionSnapshots.jobUrl(
-                        CloudSnapshots.WEBAPP_URL, value.getConnection().getWorkspaceId(), value.getConnection().getConnectionId(), job.jobId, null
+                        CloudSnapshots.WEBAPP_URL, value.resolvedWorkspaceId(), value.getConnection().getConnectionId(), job.jobId, null
                     )
                 );
         });

@@ -27,6 +27,7 @@ import io.kestra.plugin.airbyte.ConnectionSnapshots;
 import io.kestra.plugin.airbyte.StreamAssets;
 import io.kestra.plugin.airbyte.models.Attempt;
 import io.kestra.plugin.airbyte.models.AttemptInfo;
+import io.kestra.plugin.airbyte.models.AttemptStats;
 import io.kestra.plugin.airbyte.models.AttemptStatus;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionSummary;
@@ -59,7 +60,7 @@ import io.kestra.core.models.annotations.PluginProperty;
 
         Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`, and the `job.failures` output lists sanitized failure reasons: internal messages and stack traces are never kept.
 
-        When Kestra runs with assets enabled (Enterprise Edition), every replicated stream that committed records is emitted as a table asset, with the source stream as its input. The asset id is `<destinationId>.<namespace>.<table>` and uses Airbyte's logical names, which can differ from the physical table name when the destination normalizes them
+        When Kestra runs with assets enabled (Enterprise Edition), every replicated stream that committed records is emitted as a table asset, with the source stream as its input, but only when the task ends in SUCCESS or WARNING (Kestra drops the assets of a failed task run). Counts are the same per-stream figures as `metadata`, so a job that ended in WARNING emits no asset. The asset id is `<destinationId>.<namespace>.<table>` and uses Airbyte's logical names, which can differ from the physical table name when the destination normalizes them
         """
 )
 @Plugin(
@@ -288,11 +289,6 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         ConnectionSummary connection = null;
         String jobUrl = null;
         if (snapshot != null) {
-            StreamAssets.emit(
-                runContext,
-                StreamAssets.plan(snapshot, JobReports.committed(finalJobStatus), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
-            );
-
             try {
                 snapshotUri = ConnectionSnapshots.store(runContext, snapshot);
             } catch (Exception e) {
@@ -301,7 +297,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             connection = ConnectionSummary.from(snapshot);
             jobUrl = ConnectionSnapshots.jobUrl(
                 webappBaseUrl(runContext),
-                snapshot.getConnection().getWorkspaceId(),
+                snapshot.resolvedWorkspaceId(),
                 snapshot.getConnection().getConnectionId(),
                 job.getId(),
                 summary.getAttemptCount() > 0 ? summary.getAttemptCount() - 1 : null
@@ -312,11 +308,21 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             && Boolean.TRUE.equals(summary.getPartialSuccess())
             && runContext.render(this.onPartialSuccess).as(OnPartialSuccess.class).orElse(OnPartialSuccess.FAIL) == OnPartialSuccess.WARNING;
 
+        var metadata = syncMetadata(finalJobStatus);
+
+        // Core drops the assets of a FAILED task run, so only emit when the task ends SUCCESS or WARNING.
+        if (snapshot != null && (status == JobStatus.SUCCEEDED || partialSuccessAsWarning)) {
+            StreamAssets.emit(
+                runContext,
+                StreamAssets.plan(snapshot, StreamAssets.committed(metadata), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
+            );
+        }
+
         var output = Output.builder()
             .finalJobStatus(String.valueOf(status))
             .job(summary)
             .attempts(attemptsUri)
-            .metadata(syncMetadata(finalJobStatus))
+            .metadata(metadata)
             .connection(connection)
             .connectionSnapshot(snapshotUri)
             .jobUrl(jobUrl)
@@ -393,6 +399,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                 sourceTotals.bytes = JobReports.sum(sourceTotals.bytes, stats.getBytesEmitted());
                 destinationTotals.rows = JobReports.sum(destinationTotals.rows, stats.getRecordsCommitted());
                 destinationTotals.bytes = JobReports.sum(destinationTotals.bytes, stats.getBytesCommitted());
+                destinationTotals.emittedBytes = JobReports.sum(destinationTotals.emittedBytes, stats.getBytesEmitted());
                 destinationTotals.rejected = JobReports.sum(destinationTotals.rejected, stats.getRecordsRejected());
             });
 
@@ -409,7 +416,15 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
         return SyncMetadata.builder()
             .rowsSynced(rowsSynced)
-            .bytesSynced(destination.values().stream().map(totals -> totals.bytes).filter(Objects::nonNull).reduce(Long::sum).orElse(null))
+            .bytesSynced(
+                destination.values().stream().map(totals -> totals.bytes).filter(Objects::nonNull).reduce(Long::sum)
+                    .or(() -> successfulAttempts.stream().map(Attempt::getBytesSynced).filter(Objects::nonNull).reduce(Long::sum))
+                    .or(
+                        () -> successfulAttempts.stream().map(Attempt::getTotalStats).filter(Objects::nonNull).map(AttemptStats::getBytesEmitted)
+                            .filter(Objects::nonNull).reduce(Long::sum)
+                    )
+                    .orElse(null)
+            )
             .recordsRejected(destination.values().stream().map(totals -> totals.rejected).filter(Objects::nonNull).reduce(Long::sum).orElse(null))
             .source(toTables(source))
             .destination(toTables(destination))
@@ -423,7 +438,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                     .name(entry.getKey().name())
                     .namespace(entry.getKey().namespace())
                     .rows(entry.getValue().rows)
-                    .bytes(entry.getValue().bytes)
+                    .bytes(entry.getValue().bytes != null ? entry.getValue().bytes : entry.getValue().emittedBytes)
                     .recordsRejected(entry.getValue().rejected)
                     .build()
             )
@@ -437,6 +452,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     private static final class Totals {
         Long rows;
         Long bytes;
+        Long emittedBytes;
         Long rejected;
     }
 
