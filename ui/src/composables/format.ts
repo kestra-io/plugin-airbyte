@@ -37,8 +37,9 @@ export function formatDuration(value?: string | number | null): string {
     if (seconds < 60) return `${seconds.toFixed(seconds % 1 === 0 ? 0 : 1)} s`;
     const minutes = Math.floor(seconds / 60);
     const rest = Math.round(seconds % 60);
-    if (minutes < 60) return `${minutes} min ${rest} s`;
-    return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+    if (minutes < 60) return rest ? `${minutes} min ${rest} s` : `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`;
 }
 
 // Instants arrive as ISO strings; tolerate epoch seconds or milliseconds too.

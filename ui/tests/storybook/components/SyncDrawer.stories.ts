@@ -44,9 +44,13 @@ export const NoExecution: Story = {
         const canvas = within(canvasElement);
         await waitFor(() => expect(canvas.getByText("Task settings")).toBeInTheDocument());
         expect(canvas.getByText("http://localhost:8080")).toBeInTheDocument();
-        expect(canvas.getByText("onPartialSuccess")).toBeInTheDocument();
+        expect(canvas.getByText("On partial success")).toBeInTheDocument();
+        expect(canvas.getByText("Connection ID")).toBeInTheDocument();
+        expect(canvas.getByText("Poll frequency")).toBeInTheDocument();
+        expect(canvas.getByText("5 s")).toBeInTheDocument();
+        expect(canvas.getByText("1 h")).toBeInTheDocument();
         expect(canvas.getByText("WARNING")).toBeInTheDocument();
-        expect(canvas.getByText("assets.enableAuto")).toBeInTheDocument();
+        expect(canvas.getByText("Automatic assets")).toBeInTheDocument();
         expect(canvas.getByText("Run the flow to see the job summary.")).toBeInTheDocument();
         expect(canvas.queryByText("Job")).toBeNull();
     },
@@ -78,7 +82,7 @@ export const Succeeded: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement);
         await waitFor(() => expect(canvas.getByText("Streams (3)")).toBeInTheDocument());
-        expect(canvas.getAllByText("SUCCEEDED").length).toBe(2);
+        expect(canvas.getAllByText("SUCCEEDED").length).toBe(1);
         expect(canvas.getByText("public.orders")).toBeInTheDocument();
         expect(canvas.getByText("3 min 15 s")).toBeInTheDocument();
         expect(canvas.getByText("Open the job in Airbyte").getAttribute("href")).toContain(
@@ -109,6 +113,9 @@ export const Failed: Story = {
         expect(canvas.getByText("SOURCE")).toBeInTheDocument();
         expect(canvas.getByText("CONFIG_ERROR")).toBeInTheDocument();
         expect(canvas.queryByText(/^Streams/)).toBeNull();
+        expect(
+            canvas.getByText("No per-stream statistics: no attempt succeeded."),
+        ).toBeInTheDocument();
     },
 };
 
@@ -155,7 +162,7 @@ export const Cloud: Story = {
             canvas.getByText("Per-stream statistics aren't available from Airbyte Cloud."),
         ).toBeInTheDocument();
         expect(canvas.queryByText("Attempts")).toBeNull();
-        expect(canvas.queryByText("onActiveSync")).toBeNull();
+        expect(canvas.queryByText("On active sync")).toBeNull();
     },
 };
 
@@ -170,6 +177,21 @@ export const ManyStreams: Story = {
         await userEvent.click(canvas.getByText("Show all 12"));
         await waitFor(() => expect(canvas.getByText("public.table_1")).toBeInTheDocument());
         expect(canvas.getByText("Show top 10")).toBeInTheDocument();
+    },
+};
+
+export const CheckStatusJobId: Story = {
+    name: "CheckStatus falls back to the task's job ID",
+    args: {
+        task: { ...task, type: "io.kestra.plugin.airbyte.connections.CheckStatus", jobId: "2" },
+        ...flow,
+        ...fetchers({ ...succeededOutputs, jobId: undefined }),
+    } as any,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        await waitFor(() => expect(canvas.getByText("Streams (3)")).toBeInTheDocument());
+        const outputsWithoutJobId = canvas.getAllByText("Job ID").at(-1)?.nextElementSibling;
+        expect(outputsWithoutJobId?.textContent).toBe("2");
     },
 };
 

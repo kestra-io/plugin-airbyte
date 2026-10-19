@@ -1,3 +1,5 @@
+import { formatDuration } from "./format";
+
 export interface Setting {
     key: string;
     label: string;
@@ -23,6 +25,22 @@ const SELF_HOSTED_CHECK = [
     "onPartialSuccess",
 ];
 const CLOUD = ["connectionId", "wait", "pollFrequency", "maxDuration"];
+
+const LABELS: Record<string, string> = {
+    connectionId: "Connection ID",
+    jobId: "Job ID",
+    url: "Airbyte URL",
+    webappUrl: "Web app URL",
+    wait: "Wait for completion",
+    pollFrequency: "Poll frequency",
+    maxDuration: "Max duration",
+    onActiveSync: "On active sync",
+    onPartialSuccess: "On partial success",
+    "assets.enableAuto": "Automatic assets",
+    authentication: "Authentication",
+};
+
+const DURATION_KEYS = ["pollFrequency", "maxDuration"];
 
 export function isCloudTask(task?: Record<string, any>): boolean {
     return String(task?.type ?? "").startsWith("io.kestra.plugin.airbyte.cloud.");
@@ -58,7 +76,11 @@ export function taskSettings(task?: Record<string, any>): Setting[] {
     for (const key of settingKeys(task)) {
         const value = task[key];
         if (value === undefined || value === null || typeof value === "object") continue;
-        settings.push({ key, label: key, value: String(value) });
+        // Literal ISO durations are shown readably; expressions stay as written.
+        const text = String(value);
+        const shown =
+            DURATION_KEYS.includes(key) && /^PT?\d/.test(text) ? formatDuration(text) : text;
+        settings.push({ key, label: LABELS[key] ?? key, value: shown });
     }
 
     const autoAssets = task.assets?.enableAuto;
@@ -69,12 +91,12 @@ export function taskSettings(task?: Record<string, any>): Setting[] {
     ) {
         settings.push({
             key: "assets.enableAuto",
-            label: "assets.enableAuto",
+            label: LABELS["assets.enableAuto"],
             value: String(autoAssets),
         });
     }
 
     const auth = authMethod(task);
-    if (auth) settings.push({ key: "authentication", label: "authentication", value: auth });
+    if (auth) settings.push({ key: "authentication", label: LABELS.authentication, value: auth });
     return settings;
 }

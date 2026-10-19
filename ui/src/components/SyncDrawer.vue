@@ -2,6 +2,7 @@
 import type { KnownSlotProps } from "@kestra-io/artifact-sdk";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { ElConfigProvider } from "element-plus";
 import { KsAlert, KsTag, KsTopologyDetails } from "@kestra-io/design-system";
 import {
     MISSING,
@@ -45,6 +46,7 @@ const { t } = useI18n({
             total: "Total",
             showAll: "Show all {count}",
             showLess: "Show top {count}",
+            noStreams: "No per-stream statistics: no attempt succeeded.",
             cloudNoStreams: "Per-stream statistics aren't available from Airbyte Cloud.",
             connection: "Connection",
             name: "Name",
@@ -117,12 +119,15 @@ const alertTitle = computed(() =>
 const jobRows = computed(() => {
     const value = job.value ?? {};
     const rows = [
-        { label: t("jobId"), value: String(taskOutputs.value?.jobId ?? value.jobId ?? MISSING) },
+        // CheckStatus takes the job ID as an input, so its outputs carry none: fall back to the task.
+        {
+            label: t("jobId"),
+            value: String(taskOutputs.value?.jobId ?? value.jobId ?? task.value?.jobId ?? MISSING),
+        },
         {
             label: t("jobType"),
             value: String(value.configType ?? value.jobType ?? MISSING).toLowerCase(),
         },
-        { label: t("status"), value: formatStatus(value.status) },
         { label: t("created"), value: formatDateTime(value.createdAt ?? value.startTime) },
         { label: t("ended"), value: formatDateTime(value.endedAt ?? value.lastUpdatedAt) },
         { label: t("duration"), value: formatDuration(value.duration) },
@@ -202,133 +207,141 @@ const groupedFailures = computed(() => {
 </script>
 
 <template>
-    <div class="airbyte-drawer">
-        <div v-if="hasOutputs || running" class="airbyte-header">
-            <KsTag v-if="running" size="small" type="info">{{ t("running") }}</KsTag>
-            <KsTag v-else size="small" :type="statusType">{{ formatStatus(job?.status) }}</KsTag>
-            <KsTag v-if="job?.partialSuccess" size="small" type="warning">
-                {{ t("partialSuccess") }}
-            </KsTag>
-            <KsTag v-if="adopted" size="small" type="info">{{ t("adopted") }}</KsTag>
-            <a v-if="jobUrl" :href="jobUrl" target="_blank" rel="noopener noreferrer">{{
-                t("openJob")
-            }}</a>
+    <!-- The plugin bundles its own Element Plus, which does not see the host's "kel" namespace: without it the
+         design-system styles (tag, alert) never match the rendered "el-*" classes. -->
+    <ElConfigProvider namespace="kel">
+        <div class="airbyte-drawer">
+            <div v-if="hasOutputs || running" class="airbyte-header">
+                <KsTag v-if="running" size="small" type="info">{{ t("running") }}</KsTag>
+                <KsTag v-else size="small" :type="statusType">{{
+                    formatStatus(job?.status)
+                }}</KsTag>
+                <KsTag v-if="job?.partialSuccess" size="small" type="warning">
+                    {{ t("partialSuccess") }}
+                </KsTag>
+                <KsTag v-if="adopted" size="small" type="info">{{ t("adopted") }}</KsTag>
+                <a v-if="jobUrl" :href="jobUrl" target="_blank" rel="noopener noreferrer">{{
+                    t("openJob")
+                }}</a>
+            </div>
+
+            <KsAlert
+                v-if="hasOutputs && isFailure"
+                type="error"
+                :title="alertTitle"
+                :description="alertMessage"
+                :closable="false"
+                show-icon
+                class="airbyte-alert"
+            />
+
+            <details v-if="settingRows.length" class="airbyte-section" :open="!hasOutputs">
+                <summary class="airbyte-section__title">{{ t("settings") }}</summary>
+                <KsTopologyDetails :rows="settingRows" />
+            </details>
+
+            <p v-if="!hasExecution" class="airbyte-note">{{ t("empty") }}</p>
+            <p v-else-if="running" class="airbyte-note">{{ t("runningHint") }}</p>
+
+            <template v-if="hasOutputs">
+                <details class="airbyte-section" open>
+                    <summary class="airbyte-section__title">{{ t("job") }}</summary>
+                    <KsTopologyDetails :rows="jobRows" />
+                </details>
+
+                <details v-if="groupedFailures.length" class="airbyte-section" open>
+                    <summary class="airbyte-section__title">
+                        {{ t("failures") }} ({{ groupedFailures.length }})
+                    </summary>
+                    <ul class="airbyte-failures">
+                        <li v-for="(group, index) in groupedFailures" :key="index">
+                            <div class="airbyte-tags">
+                                <KsTag v-if="group.failure.origin" size="small" type="info">{{
+                                    group.failure.origin
+                                }}</KsTag>
+                                <KsTag v-if="group.failure.type" size="small" type="danger">{{
+                                    group.failure.type
+                                }}</KsTag>
+                                <KsTag v-if="group.failure.retryable" size="small" type="warning">{{
+                                    t("retryable")
+                                }}</KsTag>
+                                <span v-if="group.count > 1" class="airbyte-count"
+                                    >×{{ group.count }}</span
+                                >
+                                <span v-if="group.failure.stream" class="airbyte-muted">{{
+                                    group.failure.stream
+                                }}</span>
+                            </div>
+                            <div>{{ group.failure.externalMessage }}</div>
+                        </li>
+                    </ul>
+                </details>
+
+                <details v-if="streams.length" class="airbyte-section" open>
+                    <summary class="airbyte-section__title">
+                        {{ t("streams") }} ({{ streams.length }})
+                    </summary>
+                    <table class="airbyte-streams">
+                        <thead>
+                            <tr>
+                                <th>{{ t("stream") }}</th>
+                                <th>{{ t("emitted") }}</th>
+                                <th>{{ t("committed") }}</th>
+                                <th>{{ t("bytes") }}</th>
+                                <th>{{ t("rejected") }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="stream in visibleStreams" :key="streamLabel(stream)">
+                                <td>
+                                    {{ streamLabel(stream) }}
+                                    <div class="airbyte-bar">
+                                        <div
+                                            class="airbyte-bar__fill"
+                                            :style="{ width: barWidth(stream.rows) }"
+                                        />
+                                    </div>
+                                </td>
+                                <td>{{ formatNumber(stream.emitted) }}</td>
+                                <td>{{ formatNumber(stream.rows) }}</td>
+                                <td>{{ formatBytes(stream.bytes) }}</td>
+                                <td>{{ formatNumber(stream.rejected) }}</td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <th>{{ t("total") }}</th>
+                                <th>{{ formatNumber(totals.emitted) }}</th>
+                                <th>{{ formatNumber(totals.rows) }}</th>
+                                <th>{{ formatBytes(totals.bytes) }}</th>
+                                <th>{{ formatNumber(totals.rejected) }}</th>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    <button
+                        v-if="streams.length > MAX_STREAMS"
+                        type="button"
+                        class="airbyte-toggle"
+                        @click="showAll = !showAll"
+                    >
+                        {{
+                            showAll
+                                ? t("showLess", { count: MAX_STREAMS })
+                                : t("showAll", { count: streams.length })
+                        }}
+                    </button>
+                </details>
+                <p v-else class="airbyte-note">
+                    {{ isCloud ? t("cloudNoStreams") : t("noStreams") }}
+                </p>
+
+                <details v-if="connection" class="airbyte-section">
+                    <summary class="airbyte-section__title">{{ t("connection") }}</summary>
+                    <KsTopologyDetails :rows="connectionRows" />
+                </details>
+            </template>
         </div>
-
-        <KsAlert
-            v-if="hasOutputs && isFailure"
-            type="error"
-            :title="alertTitle"
-            :description="alertMessage"
-            :closable="false"
-            show-icon
-            class="airbyte-alert"
-        />
-
-        <details v-if="settingRows.length" class="airbyte-section" :open="!hasOutputs">
-            <summary class="airbyte-section__title">{{ t("settings") }}</summary>
-            <KsTopologyDetails :rows="settingRows" />
-        </details>
-
-        <p v-if="!hasExecution" class="airbyte-note">{{ t("empty") }}</p>
-        <p v-else-if="running" class="airbyte-note">{{ t("runningHint") }}</p>
-
-        <template v-if="hasOutputs">
-            <details class="airbyte-section" open>
-                <summary class="airbyte-section__title">{{ t("job") }}</summary>
-                <KsTopologyDetails :rows="jobRows" />
-            </details>
-
-            <details v-if="groupedFailures.length" class="airbyte-section" open>
-                <summary class="airbyte-section__title">
-                    {{ t("failures") }} ({{ groupedFailures.length }})
-                </summary>
-                <ul class="airbyte-failures">
-                    <li v-for="(group, index) in groupedFailures" :key="index">
-                        <div class="airbyte-tags">
-                            <KsTag v-if="group.failure.origin" size="small" type="info">{{
-                                group.failure.origin
-                            }}</KsTag>
-                            <KsTag v-if="group.failure.type" size="small" type="danger">{{
-                                group.failure.type
-                            }}</KsTag>
-                            <KsTag v-if="group.failure.retryable" size="small" type="warning">{{
-                                t("retryable")
-                            }}</KsTag>
-                            <span v-if="group.count > 1" class="airbyte-count"
-                                >×{{ group.count }}</span
-                            >
-                            <span v-if="group.failure.stream" class="airbyte-muted">{{
-                                group.failure.stream
-                            }}</span>
-                        </div>
-                        <div>{{ group.failure.externalMessage }}</div>
-                    </li>
-                </ul>
-            </details>
-
-            <details v-if="streams.length" class="airbyte-section" open>
-                <summary class="airbyte-section__title">
-                    {{ t("streams") }} ({{ streams.length }})
-                </summary>
-                <table class="airbyte-streams">
-                    <thead>
-                        <tr>
-                            <th>{{ t("stream") }}</th>
-                            <th>{{ t("emitted") }}</th>
-                            <th>{{ t("committed") }}</th>
-                            <th>{{ t("bytes") }}</th>
-                            <th>{{ t("rejected") }}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="stream in visibleStreams" :key="streamLabel(stream)">
-                            <td>
-                                {{ streamLabel(stream) }}
-                                <div class="airbyte-bar">
-                                    <div
-                                        class="airbyte-bar__fill"
-                                        :style="{ width: barWidth(stream.rows) }"
-                                    />
-                                </div>
-                            </td>
-                            <td>{{ formatNumber(stream.emitted) }}</td>
-                            <td>{{ formatNumber(stream.rows) }}</td>
-                            <td>{{ formatBytes(stream.bytes) }}</td>
-                            <td>{{ formatNumber(stream.rejected) }}</td>
-                        </tr>
-                    </tbody>
-                    <tfoot>
-                        <tr>
-                            <th>{{ t("total") }}</th>
-                            <th>{{ formatNumber(totals.emitted) }}</th>
-                            <th>{{ formatNumber(totals.rows) }}</th>
-                            <th>{{ formatBytes(totals.bytes) }}</th>
-                            <th>{{ formatNumber(totals.rejected) }}</th>
-                        </tr>
-                    </tfoot>
-                </table>
-                <button
-                    v-if="streams.length > MAX_STREAMS"
-                    type="button"
-                    class="airbyte-toggle"
-                    @click="showAll = !showAll"
-                >
-                    {{
-                        showAll
-                            ? t("showLess", { count: MAX_STREAMS })
-                            : t("showAll", { count: streams.length })
-                    }}
-                </button>
-            </details>
-            <p v-else-if="isCloud" class="airbyte-note">{{ t("cloudNoStreams") }}</p>
-
-            <details v-if="connection" class="airbyte-section">
-                <summary class="airbyte-section__title">{{ t("connection") }}</summary>
-                <KsTopologyDetails :rows="connectionRows" />
-            </details>
-        </template>
-    </div>
+    </ElConfigProvider>
 </template>
 
 <style scoped>
