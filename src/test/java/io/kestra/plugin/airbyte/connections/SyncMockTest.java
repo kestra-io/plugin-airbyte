@@ -1,7 +1,6 @@
 package io.kestra.plugin.airbyte.connections;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -807,8 +806,8 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         stubApplicationToken();
         stubJobsGetSequence("check-unknown", "some_future_status", "some_future_status", "succeeded");
 
-        List<LogEntry> logs = new CopyOnWriteArrayList<>();
-        Runnable cancel = logQueue.receive(either ->
+        var logs = new CopyOnWriteArrayList<LogEntry>();
+        var cancel = logQueue.receive(either ->
         {
             if (either.isLeft()) {
                 logs.add(either.getLeft());
