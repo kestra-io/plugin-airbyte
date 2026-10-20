@@ -292,7 +292,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                 }
 
                 poller.followAttempts(jobStatus);
-                poller.liveLogs();
+                poller.liveLogs(jobStatus);
                 return null;
             }),
             runContext.render(this.pollFrequency).as(Duration.class).orElseThrow(),
@@ -513,6 +513,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         private Instant lastLogFetch;
         private Integer currentAttempt;
         private boolean currentAttemptEnded;
+        private Instant lastDiscoveredUpdatedAt;
         // Init with 1 as when triggering sync, an attempt is automatically generated
         private int knownAttempts = 1;
 
@@ -551,7 +552,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             }
         }
 
-        void liveLogs() {
+        void liveLogs(JobInfo jobStatus) {
             if (!lightStatus || !airbyteLogs.isEnabled()) {
                 return;
             }
@@ -563,9 +564,9 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             lastLogFetch = now;
 
             try {
-                if (currentAttempt == null || currentAttemptEnded) {
-                    discoverAttempt();
-                } else {
+                if (currentAttempt == null || (currentAttemptEnded && jobChangedSinceDiscovery(jobStatus))) {
+                    discoverAttempt(jobStatus.getJob().getUpdatedAt());
+                } else if (!currentAttemptEnded) {
                     var body = Map.<String, Object> of("jobId", jobId, "attemptNumber", currentAttempt);
                     var attempt = fetch("/api/v1/attempt/get_for_job", body, AttemptInfo.class, false);
                     airbyteLogs.consume(currentAttempt, attempt);
@@ -584,8 +585,16 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             return full;
         }
 
+        // `job.updatedAt` moves when an attempt is created or ends, not on progress, so it tells when a new attempt may exist
+        // without a full `jobs/get` on every tick of Airbyte's backoff. Without it, fall back to looking every tick.
+        private boolean jobChangedSinceDiscovery(JobInfo jobStatus) {
+            var updatedAt = jobStatus.getJob().getUpdatedAt();
+            return updatedAt == null || !updatedAt.equals(lastDiscoveredUpdatedAt);
+        }
+
         // Airbyte exposes no attempt count outside of `jobs/get`, and `attempt/get_for_job` fails on an attempt that does not exist yet.
-        private void discoverAttempt() throws Exception {
+        private void discoverAttempt(Instant updatedAt) throws Exception {
+            lastDiscoveredUpdatedAt = updatedAt;
             var full = fetch(JOBS_GET, Map.of("id", jobId), JobInfo.class, false);
             var attempts = JobReports.attempts(full);
             airbyteLogs.consume(attempts);
