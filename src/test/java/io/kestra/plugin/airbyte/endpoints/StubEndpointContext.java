@@ -34,6 +34,11 @@ final class StubEndpointContext implements PluginEndpointContext {
         return this;
     }
 
+    StubEndpointContext params(String name, String... values) {
+        parameters.put(name, List.of(values));
+        return this;
+    }
+
     StubEndpointContext output(String name, Object value) {
         outputs.put(name, value);
         return this;
