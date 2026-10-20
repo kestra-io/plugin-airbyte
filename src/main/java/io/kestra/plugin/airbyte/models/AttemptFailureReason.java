@@ -15,4 +15,6 @@ public class AttemptFailureReason {
     String stacktrace;
     Boolean retryable;
     Long timestamp;
+    StreamDescriptor streamDescriptor;
+    Boolean fromTraceMessage;
 }

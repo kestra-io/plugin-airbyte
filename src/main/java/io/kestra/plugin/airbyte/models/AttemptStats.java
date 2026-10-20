@@ -12,4 +12,6 @@ public class AttemptStats {
     Long bytesEmitted;
     Long stateMessagesEmitted;
     Long recordsCommitted;
+    Long bytesCommitted;
+    Long recordsRejected;
 }

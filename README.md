@@ -48,6 +48,36 @@
 - Provides plugin components under `io.kestra.plugin.airbyte`.
 - Includes classes such as `JobStatus`, `AttemptFailureSummary`, `AttemptFailureReason`, `AttemptStatus`.
 
+## Self-hosted job outputs
+
+When `wait` is enabled, `io.kestra.plugin.airbyte.connections.Sync` and `CheckStatus` expose:
+
+- `job`: status, timing, attempt counts, `partialSuccess` and sanitized `failures` (`origin`, `type`, `externalMessage`, `retryable`, `stream`).
+- `attempts`: internal storage Ion file with one row per Airbyte attempt, including per-stream statistics.
+- `metadata`: `rowsSynced`, `bytesSynced`, `recordsRejected` and the source and destination tables with their row and byte counts.
+
+Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`.
+
+A job that does not end `SUCCEEDED` fails the task but keeps these outputs, so `errors` and `finally` branches and `allowFailure: true` can read them. With `onPartialSuccess: WARNING`, a `FAILED` job that committed records ends in `WARNING` instead. `internalMessage` and stack traces from Airbyte are never logged or returned, and `externalMessage` is truncated to 2 KiB. `finalJobStatus` is deprecated: use `job.status`.
+
+### Connection snapshot, job link and assets
+
+`Sync` and `CheckStatus` also return `connection` (source and destination connector types, workspace, stream count), `connectionSnapshot` (JSON file in internal storage) and `jobUrl` (link to the job logs in the Airbyte web app, built from `webappUrl`, which defaults to `url`). They come from Airbyte's config API, and connector configurations are never read. If the credentials cannot read connections, sources and destinations, the task logs a warning and these outputs stay `null`.
+
+With assets enabled (Enterprise Edition only), each replicated stream that committed records is emitted as a table asset `io.kestra.plugin.ee.assets.Table` with id `<destinationId>.<namespace>.<table>` (the namespace segment is left out when it cannot be resolved without the destination configuration) and the source stream as its input. Ids use Airbyte's logical names, which can differ from the physical table names, and do not match the ids emitted by other plugins. Assets are emitted only when the task ends in SUCCESS or WARNING: Kestra drops the assets of a FAILED task run, so none are emitted for a failed job. Their row and byte counts are the same per-stream figures as `metadata`, which only count successful attempts, so a job that ended in WARNING (partial success, no successful attempt) emits no asset.
+
+## Airbyte Cloud
+
+`cloud.jobs.Sync` and `cloud.jobs.Reset` return `job` plus `connection`, `connectionSnapshot` and `jobUrl` (link to the job in Airbyte Cloud). `Sync` emits table assets for the replicated streams when the job succeeds, with the same id format as self-hosted; `Reset` emits none. The Airbyte Cloud public API only reports `bytesSynced`, `rowsSynced` and `duration` for a job, so there are no per-stream or per-attempt statistics, no `attempts` output, no per-attempt sub task runs and no `onPartialSuccess`. On Airbyte Cloud, the SDK only reads sources and destinations of connectors it knows: if one cannot be read, the task logs a warning and still returns the connection, `jobUrl` and assets, with that side's connector type left `null`.
+
+**Migration note:** `cloud.jobs.Sync` and `cloud.jobs.Reset` now fail when the Airbyte job ends `FAILED` or `CANCELLED`. Outputs remain available; use `allowFailure: true` or an `errors` branch to keep the previous behavior.
+
+## UI
+
+On Kestra 2.0 and later (open the dialog with the "Airbyte details" action of the node), `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset` get a topology card and a details dialog. The card shows the source and destination types, stream count, rows and bytes synced, attempts and status. The dialog shows a status header with a link to the job in Airbyte, an alert for failed jobs, the task settings (authentication shows the method only, never credentials), the job summary, grouped failure reasons, a per-stream table with emitted and committed rows, bytes and rejected records, and the connection summary. Airbyte Cloud jobs show job totals only.
+
+The UI only displays inline outputs and metrics: the contents of the `attempts` and `connectionSnapshot` files are not shown. Kestra 1.3.x ignores the UI. See [`ui/README.md`](ui/README.md) for local development.
+
 ## Documentation
 * Full documentation can be found under: [kestra.io/docs](https://kestra.io/docs)
 * Documentation for developing a plugin is included in the [Plugin Developer Guide](https://kestra.io/docs/plugin-developer-guide/)
