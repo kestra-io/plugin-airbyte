@@ -60,7 +60,7 @@ import io.kestra.core.models.annotations.PluginProperty;
 
         When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records.
 
-        Airbyte's job logs are forwarded to the task logs while waiting, prefixed with their source (`[source]`, `[destination]`, `[orchestrator]`, `[platform]`), and returned in the `airbyteLogs` file. See `logFrequency`, `maxLogEvents` and `platformLogLevel`.
+        Airbyte's job logs are forwarded to the task logs while waiting, prefixed with `[Airbyte]` and their source (`[Airbyte][source]`, `[Airbyte][destination]`, `[Airbyte][orchestrator]`, `[Airbyte][platform]`), and returned in the `airbyteLogs` file. See `logFrequency`, `maxLogEvents` and `platformLogLevel`.
 
         Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`, and the `job.failures` output lists sanitized failure reasons: internal messages and stack traces are never kept.
 

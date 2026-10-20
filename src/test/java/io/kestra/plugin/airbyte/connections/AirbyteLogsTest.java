@@ -83,12 +83,12 @@ class AirbyteLogsTest {
 
         assertThat(
             formatted(), contains(
-                "INFO [platform] p",
-                "WARN [source] s",
-                "ERROR [destination] d",
-                "DEBUG [orchestrator] o",
-                "TRACE [source] t",
-                "INFO [source] unknown"
+                "INFO [Airbyte][platform] p",
+                "WARN [Airbyte][source] s",
+                "ERROR [Airbyte][destination] d",
+                "DEBUG [Airbyte][orchestrator] o",
+                "TRACE [Airbyte][source] t",
+                "INFO [Airbyte][source] unknown"
             )
         );
         assertThat(logs.rows().get(3).getLogSource(), is("replication-orchestrator"));
@@ -112,7 +112,7 @@ class AirbyteLogsTest {
             )
         );
 
-        assertThat(formatted(), contains("DEBUG [platform] noise", "WARN [platform] backoff", "ERROR [platform] boom", "INFO [source] records"));
+        assertThat(formatted(), contains("DEBUG [Airbyte][platform] noise", "WARN [Airbyte][platform] backoff", "ERROR [Airbyte][platform] boom", "INFO [Airbyte][source] records"));
         assertThat(logs.rows().getFirst().getLevel(), is(Level.INFO));
     }
 
@@ -123,7 +123,7 @@ class AirbyteLogsTest {
         logs.consume(List.of(attempt(0, event(1, "info", "source", "a"), event(2, "info", "source", "b"))));
         logs.consume(List.of(attempt(0, event(1, "info", "source", "a"), event(2, "info", "source", "b"), event(3, "info", "source", "c"), event(4, "info", "source", "d"))));
 
-        assertThat(formatted(), contains("INFO [source] a", "INFO [source] b", "INFO [source] c", "INFO [source] d"));
+        assertThat(formatted(), contains("INFO [Airbyte][source] a", "INFO [Airbyte][source] b", "INFO [Airbyte][source] c", "INFO [Airbyte][source] d"));
         assertThat(logs.rows().size(), is(4));
     }
 
@@ -134,7 +134,7 @@ class AirbyteLogsTest {
         logs.consume(List.of(legacyAttempt(0, "a", "b")));
         logs.consume(List.of(legacyAttempt(0, "a", "b", "c", "d")));
 
-        assertThat(formatted(), contains("INFO a", "INFO b", "INFO c", "INFO d"));
+        assertThat(formatted(), contains("INFO [Airbyte] a", "INFO [Airbyte] b", "INFO [Airbyte] c", "INFO [Airbyte] d"));
     }
 
     @Test
@@ -146,7 +146,7 @@ class AirbyteLogsTest {
 
         assertThat(
             formatted(), contains(
-                "ERROR ERROR" + esc + " failed", "WARN WARN" + esc + " careful", "DEBUG DEBUG" + esc + " detail", "TRACE TRACE" + esc + " finer", "INFO plain"
+                "ERROR [Airbyte] ERROR" + esc + " failed", "WARN [Airbyte] WARN" + esc + " careful", "DEBUG [Airbyte] DEBUG" + esc + " detail", "TRACE [Airbyte] TRACE" + esc + " finer", "INFO [Airbyte] plain"
             )
         );
         assertThat(logs.rows().getFirst().getTimestamp(), is(nullValue()));
@@ -160,7 +160,7 @@ class AirbyteLogsTest {
         logs.consume(List.of(attempt(1, event(1, "info", "source", "second-1")), attempt(0, event(1, "info", "source", "first-1"))));
         logs.consume(List.of(attempt(0, event(1, "info", "source", "first-1"), event(2, "info", "source", "first-2")), attempt(1, event(1, "info", "source", "second-1"))));
 
-        assertThat(formatted(), contains("INFO [source] second-1", "INFO [source] first-1", "INFO [source] first-2"));
+        assertThat(formatted(), contains("INFO [Airbyte][source] second-1", "INFO [Airbyte][source] first-1", "INFO [Airbyte][source] first-2"));
         assertThat(logs.rows().stream().map(row -> row.getAttemptNumber()).toList(), contains(1, 0, 0));
     }
 
