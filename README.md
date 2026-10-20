@@ -62,7 +62,7 @@ A job that does not end `SUCCEEDED` fails the task but keeps these outputs, so `
 
 ### Airbyte logs
 
-While `Sync` (with `wait`) or `CheckStatus` waits, the Airbyte job logs are forwarded to the Kestra task logs, each event once, prefixed with the Airbyte component that emitted it: `[source]`, `[destination]`, `[orchestrator]` or `[platform]`. The Kestra level follows the level Airbyte reports (unknown levels are `INFO`). Older Airbyte versions that only return plain text lines are still supported, with the level guessed from the line.
+While `Sync` (with `wait`) or `CheckStatus` waits, the Airbyte job logs are forwarded to the Kestra task logs, each event once, prefixed with `[Airbyte]` and the component that emitted it: `[Airbyte][source]`, `[Airbyte][destination]`, `[Airbyte][orchestrator]` or `[Airbyte][platform]` (plain-text lines get `[Airbyte]` only). The `airbyteLogs` file and the `logs` endpoint are not prefixed. The Kestra level follows the level Airbyte reports (unknown levels are `INFO`). Older Airbyte versions that only return plain text lines are still supported, with the level guessed from the line.
 
 - `airbyteLogs`: internal storage Ion file with one row per event of every attempt (`attemptNumber`, `timestamp`, `level`, `logSource`, `message`). It is also available when the job fails.
 - `logFrequency` (default `10s`): how often the logs of the running attempt are fetched, independent of `pollFrequency`. Job status is polled with Airbyte's lightweight `jobs/get_light` (with an automatic fallback to `jobs/get` on versions without it), and the remaining logs are fetched once when the job ends.

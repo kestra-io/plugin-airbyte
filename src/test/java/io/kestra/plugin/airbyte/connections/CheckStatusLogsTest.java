@@ -175,11 +175,11 @@ class CheckStatusLogsTest {
         var runContext = runContext(task);
         var out = task.run(runContext);
 
-        assertThat(logsContaining(token + " a", 1).getFirst().getMessage(), is("[platform] " + token + " a"));
+        assertThat(logsContaining(token + " a", 1).getFirst().getMessage(), is("[Airbyte][platform] " + token + " a"));
         assertThat(logsContaining(token + " b", 1).getFirst().getLevel(), is(Level.WARN));
         assertThat(logsContaining(token + " c", 1).getFirst().getLevel(), is(Level.ERROR));
-        assertThat(logsContaining(token + " c", 1).getFirst().getMessage(), is("[destination] " + token + " c"));
-        assertThat(logsContaining(token + " d", 1).getFirst().getMessage(), is("[orchestrator] " + token + " d"));
+        assertThat(logsContaining(token + " c", 1).getFirst().getMessage(), is("[Airbyte][destination] " + token + " c"));
+        assertThat(logsContaining(token + " d", 1).getFirst().getMessage(), is("[Airbyte][orchestrator] " + token + " d"));
         assertThat(logs.stream().filter(log -> log.getMessage() != null && log.getMessage().contains(token)).count(), is(4L));
 
         verify(3, postRequestedFor(urlPathEqualTo(LIGHT)));
@@ -348,8 +348,8 @@ class CheckStatusLogsTest {
         assertThat(rows.size(), is(8));
         assertThat(rows.stream().map(LogRow::getLogSource).distinct().sorted().toList(), contains("destination", "platform", "replication-orchestrator", "source"));
         assertThat(rows.stream().allMatch(row -> row.getTimestamp() != null && row.getAttemptNumber() == 0), is(true));
-        assertThat(logsContaining("[destination] ", 1).isEmpty(), is(false));
-        assertThat(logsContaining("[orchestrator] ", 1).isEmpty(), is(false));
+        assertThat(logsContaining("[Airbyte][destination] ", 1).isEmpty(), is(false));
+        assertThat(logsContaining("[Airbyte][orchestrator] ", 1).isEmpty(), is(false));
     }
 
     @Test

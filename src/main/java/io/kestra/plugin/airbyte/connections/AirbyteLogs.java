@@ -26,6 +26,9 @@ import io.kestra.plugin.airbyte.models.LogRow;
 final class AirbyteLogs {
     private static final String ANSI_ESCAPE = "\u001b[";
 
+    /** Marks forwarded Airbyte lines so they can be told apart from the plugin's own task logs. */
+    static final String LOG_PREFIX = "[Airbyte]";
+
     static final String STACK_TRACE_OMITTED = "\t... stack trace omitted";
 
     private static final Pattern STACK_FRAME = Pattern.compile("^\\s+(at \\S.*|\\.\\.\\. \\d+ (more|common frames omitted).*)$");
@@ -107,12 +110,12 @@ final class AirbyteLogs {
 
     private void log(LogRow row) {
         if (row.getLogSource() == null) {
-            logAt(row.getLevel(), row.getMessage());
+            logAt(row.getLevel(), LOG_PREFIX + " " + row.getMessage());
             return;
         }
 
         var level = "platform".equals(row.getLogSource()) && row.getLevel() == Level.INFO ? platformLevel : row.getLevel();
-        logAt(level, "[" + row.label() + "] " + row.getMessage());
+        logAt(level, LOG_PREFIX + "[" + row.label() + "] " + row.getMessage());
     }
 
     private void logAt(Level level, String message) {
