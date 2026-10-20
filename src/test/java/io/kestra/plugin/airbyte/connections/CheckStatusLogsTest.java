@@ -92,6 +92,19 @@ class CheckStatusLogsTest {
         }
     }
 
+    private static void stubLightUpdatedAt(String[] statuses, long[] updatedAts) {
+        for (var index = 0; index < statuses.length; index++) {
+            var mapping = post(urlPathEqualTo(LIGHT))
+                .inScenario("light")
+                .whenScenarioStateIs(index == 0 ? Scenario.STARTED : "light-" + index)
+                .willReturn(okJson("{\"job\":{\"id\":55,\"configType\":\"sync\",\"status\":\"" + statuses[index] + "\",\"updatedAt\":" + updatedAts[index] + "}}"));
+            if (index < statuses.length - 1) {
+                mapping.willSetStateTo("light-" + (index + 1));
+            }
+            stubFor(mapping);
+        }
+    }
+
     private static void stubGet(String... bodies) {
         for (var index = 0; index < bodies.length; index++) {
             var mapping = post(urlPathMatching("/api/v1/jobs/get/?"))
@@ -241,6 +254,41 @@ class CheckStatusLogsTest {
             contains("0:" + token + " first", "1:" + token + " second", "1:" + token + " third")
         );
         assertThat(logsContaining("Previous attempt failed", 1).size(), is(1));
+    }
+
+    @Test
+    void skips_the_full_fetch_during_backoff_while_the_job_has_not_changed(WireMockRuntimeInfo wiremock) throws Exception {
+        stubLightUpdatedAt(new String[]{"running", "incomplete", "incomplete", "incomplete", "incomplete", "succeeded"}, new long[]{1, 1, 1, 1, 1, 1});
+        stubGet(
+            job("running", attempt(0, "failed", event("info", "source", "a"))),
+            job("succeeded", attempt(0, "failed", event("info", "source", "a")), attempt(1, "succeeded", event("info", "source", "b")))
+        );
+
+        var task = checkStatus(wiremock).build();
+        task.run(runContext(task));
+
+        verify(6, postRequestedFor(urlPathEqualTo(LIGHT)));
+        verify(0, postRequestedFor(urlPathEqualTo(ATTEMPT)));
+        verify(2, postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
+    }
+
+    @Test
+    void fetches_the_job_again_when_its_update_time_changes(WireMockRuntimeInfo wiremock) throws Exception {
+        var token = IdUtils.create();
+        stubLightUpdatedAt(new String[]{"incomplete", "incomplete", "incomplete", "incomplete", "succeeded"}, new long[]{1, 1, 2, 2, 2});
+        stubGet(
+            job("incomplete", attempt(0, "failed", event("info", "source", token + " first"))),
+            job("incomplete", attempt(0, "failed", event("info", "source", token + " first")), attempt(1, "failed", event("info", "source", token + " second"))),
+            job("succeeded", attempt(0, "failed", event("info", "source", token + " first")), attempt(1, "failed", event("info", "source", token + " second")))
+        );
+
+        var task = checkStatus(wiremock).build();
+        task.run(runContext(task));
+
+        verify(3, postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
+        verify(0, postRequestedFor(urlPathEqualTo(ATTEMPT)));
+        assertThat(logsContaining("Previous attempt failed", 1).size(), is(1));
+        assertThat(logsContaining(token + " second", 1).size(), is(1));
     }
 
     @Test
