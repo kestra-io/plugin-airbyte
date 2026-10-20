@@ -22,7 +22,7 @@ import lombok.experimental.SuperBuilder;
     description = """
         Starts a sync job for an Airbyte Cloud connection. By default, the task waits for completion and emits sync metrics.
 
-        The task also exposes the `connection` that ran the job, a `connectionSnapshot` file (connector configurations are never included) and a `jobUrl` to the job in Airbyte Cloud. When Kestra runs with assets enabled (Enterprise Edition) and the job succeeds, each replicated stream is emitted as a table asset with the source stream as its input. Airbyte Cloud does not report per-stream statistics, so the asset id carries no namespace unless the connection uses a custom namespace format.
+        The task also exposes the `connection` that ran the job, a `connectionSnapshot` file (connector configurations are never included) and a `jobUrl` to the job in Airbyte Cloud. When Kestra runs with assets enabled (Enterprise Edition) and the job succeeds, each replicated stream is emitted as a table asset with the source stream as its input. The asset id is `<database>.<schema>.<table>` read from the destination configuration (`<project>.<dataset>.<table>` for BigQuery), falling back to `<destinationId>.<namespace>.<table>` when it cannot be resolved. Airbyte Cloud does not report per-stream statistics, so the namespace is the destination default schema unless the connection uses a custom namespace format. If an asset fails, `assets.assetFailureBehavior` applies: `FAIL` fails the task, `WARN` (the default) ends it in WARNING, `IGNORE` only logs at debug level.
 
         Breaking change: this task now fails when the Airbyte job ends `FAILED` or `CANCELLED`. The outputs stay available: use `allowFailure: true` or an `errors` branch to keep the previous behavior.
 
