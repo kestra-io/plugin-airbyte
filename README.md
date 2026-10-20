@@ -60,6 +60,19 @@ Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`.
 
 A job that does not end `SUCCEEDED` fails the task but keeps these outputs, so `errors` and `finally` branches and `allowFailure: true` can read them. With `onPartialSuccess: WARNING`, a `FAILED` job that committed records ends in `WARNING` instead. `internalMessage` and stack traces from Airbyte are never logged or returned, and `externalMessage` is truncated to 2 KiB. `finalJobStatus` is deprecated: use `job.status`.
 
+### Airbyte logs
+
+While `Sync` (with `wait`) or `CheckStatus` waits, the Airbyte job logs are forwarded to the Kestra task logs, each event once, prefixed with the Airbyte component that emitted it: `[source]`, `[destination]`, `[orchestrator]` or `[platform]`. The Kestra level follows the level Airbyte reports (unknown levels are `INFO`). Older Airbyte versions that only return plain text lines are still supported, with the level guessed from the line.
+
+- `airbyteLogs`: internal storage Ion file with one row per event of every attempt (`attemptNumber`, `timestamp`, `level`, `logSource`, `message`). It is also available when the job fails.
+- `logFrequency` (default `10s`): how often the logs of the running attempt are fetched, independent of `pollFrequency`. Job status is polled with Airbyte's lightweight `jobs/get_light` (with an automatic fallback to `jobs/get` on versions without it), and the remaining logs are fetched once when the job ends.
+- `maxLogEvents` (default `100000`): events beyond this count, from the start of the job, are neither logged nor stored, and a warning is logged. `0` disables the Airbyte logs.
+- `platformLogLevel` (default `INFO`): Kestra level of the `platform` events that Airbyte reports at `info`, which are mostly stage transitions. Set it to `DEBUG` to hide them at the default level. `platform` warnings and errors and the other sources keep their own level, and `airbyteLogs` keeps Airbyte's level.
+
+Like `failures`, the logs are sanitized: stack trace frames are replaced by a single `... stack trace omitted` line (the exception class and message lines are kept, since they are what explains a connector failure) and Airbyte's internal `caller` details are dropped.
+
+The `logs` plugin endpoint pages through `airbyteLogs` (`origin: airbyte`), oldest first, with the filters `attempt`, `source` (repeated or comma-separated: `platform`, `source`, `destination`, `orchestrator`), `level` (minimum, default `INFO`), `q` (case-insensitive text) plus `page` and `size`. Without `airbyteLogs`, it serves the Kestra task run logs (`origin: kestra`, `level` and `q` only). Plugin endpoints cannot answer with an HTTP 400, so an invalid `attempt`, `source` or `level` is ignored.
+
 ### Connection snapshot, job link and assets
 
 `Sync` and `CheckStatus` also return `connection` (source and destination connector types, workspace, stream count), `connectionSnapshot` (JSON file in internal storage) and `jobUrl` (link to the job logs in the Airbyte web app, built from `webappUrl`, which defaults to `url`). They come from Airbyte's config API, and connector configurations are never read. If the credentials cannot read connections, sources and destinations, the task logs a warning and these outputs stay `null`.
@@ -76,7 +89,7 @@ With assets enabled (Enterprise Edition only), each replicated stream that commi
 
 On Kestra 2.0 and later (open the dialog with the "Airbyte details" action of the node), `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset` get a topology card and a details dialog. The card shows the source and destination types, stream count, rows and bytes synced, attempts and status. The dialog shows a status header with a link to the job in Airbyte, an alert for failed jobs, the task settings (authentication shows the method only, never credentials), the job summary, grouped failure reasons, a per-stream table with emitted and committed rows, bytes and rejected records, and the connection summary. Airbyte Cloud jobs show job totals only.
 
-The UI only displays inline outputs and metrics: the contents of the `attempts` and `connectionSnapshot` files are not shown. Kestra 1.3.x ignores the UI. See [`ui/README.md`](ui/README.md) for local development.
+The UI only displays inline outputs and metrics: the contents of the `attempts`, `airbyteLogs` and `connectionSnapshot` files are not shown. Kestra 1.3.x ignores the UI. See [`ui/README.md`](ui/README.md) for local development.
 
 ## Documentation
 * Full documentation can be found under: [kestra.io/docs](https://kestra.io/docs)
