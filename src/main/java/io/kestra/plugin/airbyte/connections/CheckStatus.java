@@ -3,6 +3,7 @@ package io.kestra.plugin.airbyte.connections;
 import java.net.URI;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
@@ -92,7 +93,7 @@ import io.kestra.core.models.annotations.PluginProperty;
     }
 )
 public class CheckStatus extends AbstractAirbyteConnection implements RunnableTask<CheckStatus.Output> {
-    private static final List<JobStatus> ENDED_JOB_STATUS = List.of(
+    private static final Set<JobStatus> ENDED_JOB_STATUS = EnumSet.of(
         JobStatus.FAILED,
         JobStatus.CANCELLED,
         JobStatus.SUCCEEDED
@@ -108,7 +109,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
     @Schema(
         title = "Maximum wait duration",
-        description = "Maximum total time to wait for the job to finish. Defaults to 60 minutes"
+        description = "Maximum total time to wait for the job to finish, including Airbyte's automatic retry attempts. Defaults to 60 minutes"
     )
     @Builder.Default
     Property<Duration> maxDuration = Property.ofValue(Duration.ofMinutes(60));
@@ -127,6 +128,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     @Override
     public CheckStatus.Output run(RunContext runContext) throws Exception {
         Logger logger = runContext.logger();
+
+        var unknownStatusLogged = new AtomicBoolean(false);
 
         // Init with 1 as when triggering sync, an attempt is automatically generated
         AtomicInteger attemptCounter = new AtomicInteger(1);
@@ -152,6 +155,13 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                 if (response.getBody() != null) {
                     JobInfo jobStatus = response.getBody();
                     sendLog(logger, jobStatus);
+
+                    if (jobStatus.getJob().getStatus() == null && unknownStatusLogged.compareAndSet(false, true)) {
+                        logger.warn(
+                            "Status of job {} is not recognised by this plugin; polling continues until the job is failed, cancelled or succeeded, or until maxDuration is reached",
+                            jobIdRendered
+                        );
+                    }
 
                     // ended
                     if (ENDED_JOB_STATUS.contains(jobStatus.getJob().getStatus())) {
