@@ -15,7 +15,10 @@ import io.kestra.core.plugins.endpoint.PluginEndpointResponse;
 
 /**
  * Pages through the logs of the task run, oldest first. Query parameters: {@code level} (minimum level, default {@code INFO}),
- * {@code attempt} (keeps the logs of that Kestra task run attempt number), {@code page} (default 1) and {@code size} (default 50, max 500).
+ * {@code page} (default 1) and {@code size} (default 50, max 500).
+ * <p>
+ * The context is scoped to the task run in the URL. Per-attempt failure lines live on the {@code attempt-N} sub task run,
+ * so call this endpoint on that task run id to get the logs of a single Airbyte attempt.
  */
 @Plugin
 public class Logs implements PluginEndpoint {
@@ -26,14 +29,10 @@ public class Logs implements PluginEndpoint {
 
     @Override
     public PluginEndpointResponse handle(PluginEndpointContext context) {
-        // TODO: LogEntry.attemptNumber is Kestra's retry attempt, not the Airbyte attempt; pending a decision on how to map Airbyte attempts to logs
-        var attempt = attempt(context.param("attempt"));
-
         var lines = context.logs().find(level(context.param("level"))).stream()
             .filter(Objects::nonNull)
-            .filter(log -> attempt == null || attempt.equals(log.getAttemptNumber()))
             .sorted(Comparator.comparing(LogEntry::getTimestamp, Comparator.nullsFirst(Comparator.naturalOrder())))
-            .map(log -> new Line(log.getTimestamp(), log.getLevel(), log.getMessage(), log.getAttemptNumber()))
+            .map(log -> new Line(log.getTimestamp(), log.getLevel(), log.getMessage()))
             .toList();
 
         return PluginEndpointResponse.of(EndpointPage.of(context, lines));
@@ -50,17 +49,6 @@ public class Logs implements PluginEndpoint {
         }
     }
 
-    private static Integer attempt(String value) {
-        if (value == null) {
-            return null;
-        }
-        try {
-            return Integer.valueOf(value.strip());
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    record Line(Instant timestamp, Level level, String message, Integer attemptNumber) {
+    record Line(Instant timestamp, Level level, String message) {
     }
 }

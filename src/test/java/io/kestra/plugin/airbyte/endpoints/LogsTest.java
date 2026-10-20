@@ -70,22 +70,6 @@ class LogsTest {
     }
 
     @Test
-    void filters_by_attempt() throws Exception {
-        var json = StubEndpointContext.json(new Logs().handle(context().param("attempt", "1")));
-
-        assertThat(json.get("total").asInt(), is(2));
-        assertThat(json.get("results").get(0).get("message").asText(), is("third"));
-        assertThat(json.get("results").get(0).get("attemptNumber").asInt(), is(1));
-    }
-
-    @Test
-    void non_numeric_attempt_is_ignored() throws Exception {
-        var json = StubEndpointContext.json(new Logs().handle(context().param("attempt", "x")));
-
-        assertThat(json.get("total").asInt(), is(3));
-    }
-
-    @Test
     void combines_filters_and_paginates() throws Exception {
         var json = StubEndpointContext.json(new Logs().handle(context().param("level", "TRACE").param("size", "2").param("page", "2")));
 
