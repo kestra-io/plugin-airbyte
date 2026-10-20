@@ -47,6 +47,7 @@ Infrastructure dependencies (Docker Compose services):
 - `io.kestra.plugin.airbyte.cloud.jobs.Sync`
 - `io.kestra.plugin.airbyte.connections.CheckStatus`
 - `io.kestra.plugin.airbyte.connections.Sync`
+- `io.kestra.plugin.airbyte.connections.AirbyteLogs` (Airbyte log events forwarded to the task logs and stored as `airbyteLogs`, read by the `logs` endpoint)
 - `io.kestra.plugin.airbyte.ConnectionSnapshots` and `io.kestra.plugin.airbyte.StreamAssets` (connection snapshot and lineage assets, shared with the Cloud tasks)
 
 ### Project Structure
