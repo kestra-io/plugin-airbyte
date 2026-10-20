@@ -1,0 +1,188 @@
+{
+  "job": {
+    "id": 20,
+    "configType": "sync",
+    "configId": "00000000-0000-0000-0000-000000000000",
+    "status": "failed",
+    "createdAt": 1700000000,
+    "updatedAt": 1700000300
+  },
+  "attempts": [
+    {
+      "attempt": {
+        "id": 1,
+        "status": "failed",
+        "createdAt": 1700000100,
+        "endedAt": 1700000150,
+        "bytesSynced": 0,
+        "recordsSynced": 0,
+        "failureSummary": {
+          "failures": [
+            {
+              "failureOrigin": "destination",
+              "failureType": "system_error",
+              "externalMessage": "Failing Destination(stream=Descriptor(namespace=null, name=products), failAfter=3: failing at record 4)",
+              "internalMessage": "java.lang.RuntimeException: internal",
+              "stacktrace": "java.lang.RuntimeException: internal\n\tat io.airbyte.Internal.run(Internal.kt:1)"
+            }
+          ]
+        }
+      },
+      "logType": "structured",
+      "logs": {
+        "version": 1,
+        "logLines": [],
+        "events": [
+          {
+            "timestamp": 1792501560585,
+            "level": "info",
+            "logSource": "platform",
+            "message": "Retry State: RetryManager(completeFailureBackoffPolicy=BackoffPolicy(minInterval=PT10S, maxInterval=PT30M, base=3), partialFailureBackoffPolicy=null, successiveCompleteFailureLimit=5, successivePartialFailureLimit=1000, totalCompleteFailureLimit=10, totalPartialFailureLimit=20, successiveCompleteFailures=1, successivePartialFailures=0, totalCompleteFailures=1, totalPartialFailures=0)",
+            "caller": {
+              "className": "io.airbyte.workers.temporal.scheduling.activities.AppendToAttemptLogActivityImpl",
+              "methodName": "log",
+              "lineNumber": 45,
+              "threadName": "Activity Executor taskQueue=\"CONNECTION_UPDATER\", namespace=\"default\": 11"
+            }
+          },
+          {
+            "timestamp": 1792501578571,
+            "level": "info",
+            "logSource": "source",
+            "message": "Reading messages from protocol version 0.2.0",
+            "caller": {
+              "className": "io.airbyte.workers.internal.VersionedAirbyteStreamFactory",
+              "methodName": "create",
+              "lineNumber": 121,
+              "threadName": "main"
+            }
+          },
+          {
+            "timestamp": 1792501599150,
+            "level": "error",
+            "logSource": "destination",
+            "message": "ERROR main i.a.c.l.d.p.PipelineRunner(run):60 Destination Pipeline Completed — Exceptionally java.lang.RuntimeException: Failing Destination(stream=Descriptor(namespace=null, name=products), failAfter=3: failing at record 4)\n\tat io.airbyte.integrations.destination.dev_null.FailingAggregate.accept(DevNullAggregate.kt:111) ~[io.airbyte.airbyte-integrations.connectors-destination-dev-null.jar:?]\n\tat io.airbyte.cdk.load.dataflow.aggregate.AggregateStore.acceptFor(AggregateStore.kt:31) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.stages.AggregateStage.apply(AggregateStage.kt:21) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1$1.emit(Emitters.kt:39) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$map$1$2.emit(Emitters.kt:217) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow$collect$2.emit(DataFlowPipelineInputFlow.kt:51) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow$collect$2.emit(DataFlowPipelineInputFlow.kt:38) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.input.JsonDestinationMessageInputFlow.collect(JsonDestinationMessageInputFlow.kt:37) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow.collect(DataFlowPipelineInputFlow.kt:38) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$map$1.collect(SafeCollector.common.kt:112) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invokeSuspend(Emitters.kt:36) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invoke(Emitters.kt) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invoke(Emitters.kt) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat kotlinx.coroutines.flow.SafeFlow.collectSafely(Builders.kt:57) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlinx.coroutines.flow.AbstractFlow.collect(Flow.kt:226) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperatorImpl.flowCollect(ChannelFlow.kt:191) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperator.collectTo$suspendImpl(ChannelFlow.kt:153) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperator.collectTo(ChannelFlow.kt) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlinx.coroutines.flow.internal.ChannelFlow$collectToFun$1.invokeSuspend(ChannelFlow.kt:56) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34) ~[kotlin-stdlib-2.4.21.jar:2.4.21]\n\tat kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144) ~[?:?]\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642) ~[?:?]\n\tat java.base/java.lang.Thread.run(Thread.java:1583) ~[?:?]\n\nStack Trace: java.lang.RuntimeException: Failing Destination(stream=Descriptor(namespace=null, name=products), failAfter=3: failing at record 4)\n\tat io.airbyte.integrations.destination.dev_null.FailingAggregate.accept(DevNullAggregate.kt:111)\n\tat io.airbyte.cdk.load.dataflow.aggregate.AggregateStore.acceptFor(AggregateStore.kt:31)\n\tat io.airbyte.cdk.load.dataflow.stages.AggregateStage.apply(AggregateStage.kt:21)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1$1.emit(Emitters.kt:39)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$map$1$2.emit(Emitters.kt:217)\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow$collect$2.emit(DataFlowPipelineInputFlow.kt:51)\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow$collect$2.emit(DataFlowPipelineInputFlow.kt:38)\n\tat io.airbyte.cdk.load.dataflow.input.JsonDestinationMessageInputFlow.collect(JsonDestinationMessageInputFlow.kt:37)\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow.collect(DataFlowPipelineInputFlow.kt:38)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$map$1.collect(SafeCollector.common.kt:112)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invokeSuspend(Emitters.kt:36)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invoke(Emitters.kt)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invoke(Emitters.kt)\n\tat kotlinx.coroutines.flow.SafeFlow.collectSafely(Builders.kt:57)\n\tat kotlinx.coroutines.flow.AbstractFlow.collect(Flow.kt:226)\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperatorImpl.flowCollect(ChannelFlow.kt:191)\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperator.collectTo$suspendImpl(ChannelFlow.kt:153)\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperator.collectTo(ChannelFlow.kt)\n\tat kotlinx.coroutines.flow.internal.ChannelFlow$collectToFun$1.invokeSuspend(ChannelFlow.kt:56)\n\tat kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)\n\tat kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)\n\tat java.base/java.lang.Thread.run(Thread.java:1583)\n",
+            "caller": {
+              "className": "io.airbyte.workers.internal.VersionedAirbyteStreamFactory",
+              "methodName": "internalLog$io_airbyte_oss_airbyte_commons_worker",
+              "lineNumber": 242,
+              "threadName": "pool-4-thread-4"
+            }
+          },
+          {
+            "timestamp": 1792501599320,
+            "level": "error",
+            "logSource": "destination",
+            "message": "\tat io.airbyte.integrations.destination.dev_null.FailingAggregate.accept(DevNullAggregate.kt:111)",
+            "caller": {
+              "className": "io.airbyte.container.orchestrator.worker.io.LocalContainerAirbyteDestination",
+              "methodName": "start$lambda$1",
+              "lineNumber": 109,
+              "threadName": "pool-6-thread-1"
+            }
+          },
+          {
+            "timestamp": 1792501560651,
+            "level": "warn",
+            "logSource": "platform",
+            "message": "Backing off for: 10 seconds.",
+            "caller": {
+              "className": "io.airbyte.workers.temporal.scheduling.activities.AppendToAttemptLogActivityImpl",
+              "methodName": "log",
+              "lineNumber": 44,
+              "threadName": "Activity Executor taskQueue=\"CONNECTION_UPDATER\", namespace=\"default\": 11"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "attempt": {
+        "id": 0,
+        "status": "failed",
+        "createdAt": 1700000000,
+        "endedAt": 1700000050,
+        "bytesSynced": 0,
+        "recordsSynced": 0,
+        "failureSummary": {
+          "failures": [
+            {
+              "failureOrigin": "destination",
+              "failureType": "system_error",
+              "externalMessage": "Failing Destination(stream=Descriptor(namespace=null, name=products), failAfter=3: failing at record 4)",
+              "internalMessage": "java.lang.RuntimeException: internal",
+              "stacktrace": "java.lang.RuntimeException: internal\n\tat io.airbyte.Internal.run(Internal.kt:1)"
+            }
+          ]
+        }
+      },
+      "logType": "structured",
+      "logs": {
+        "version": 1,
+        "logLines": [],
+        "events": [
+          {
+            "timestamp": 1792501519844,
+            "level": "info",
+            "logSource": "platform",
+            "message": "APPLY Stage: BUILD — (workloadId=00000000-0000-0000-0000-000000000000_20_0_check)",
+            "caller": {
+              "className": "io.airbyte.workload.launcher.pipeline.stages.model.Stage",
+              "methodName": "apply",
+              "lineNumber": 42,
+              "threadName": "default-16"
+            }
+          },
+          {
+            "timestamp": 1792501528533,
+            "level": "info",
+            "logSource": "source",
+            "message": "Reading messages from protocol version 0.2.0",
+            "caller": {
+              "className": "io.airbyte.workers.internal.VersionedAirbyteStreamFactory",
+              "methodName": "create",
+              "lineNumber": 121,
+              "threadName": "main"
+            }
+          },
+          {
+            "timestamp": 1792501549540,
+            "level": "error",
+            "logSource": "destination",
+            "message": "ERROR main i.a.c.l.d.p.PipelineRunner(run):60 Destination Pipeline Completed — Exceptionally java.lang.RuntimeException: Failing Destination(stream=Descriptor(namespace=null, name=products), failAfter=3: failing at record 4)\n\tat io.airbyte.integrations.destination.dev_null.FailingAggregate.accept(DevNullAggregate.kt:111) ~[io.airbyte.airbyte-integrations.connectors-destination-dev-null.jar:?]\n\tat io.airbyte.cdk.load.dataflow.aggregate.AggregateStore.acceptFor(AggregateStore.kt:31) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.stages.AggregateStage.apply(AggregateStage.kt:21) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1$1.emit(Emitters.kt:39) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$map$1$2.emit(Emitters.kt:217) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow$collect$2.emit(DataFlowPipelineInputFlow.kt:51) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow$collect$2.emit(DataFlowPipelineInputFlow.kt:38) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.input.JsonDestinationMessageInputFlow.collect(JsonDestinationMessageInputFlow.kt:37) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow.collect(DataFlowPipelineInputFlow.kt:38) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$map$1.collect(SafeCollector.common.kt:112) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invokeSuspend(Emitters.kt:36) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invoke(Emitters.kt) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invoke(Emitters.kt) ~[bulk-cdk-core-load-1.1.7.jar:?]\n\tat kotlinx.coroutines.flow.SafeFlow.collectSafely(Builders.kt:57) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlinx.coroutines.flow.AbstractFlow.collect(Flow.kt:226) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperatorImpl.flowCollect(ChannelFlow.kt:191) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperator.collectTo$suspendImpl(ChannelFlow.kt:153) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperator.collectTo(ChannelFlow.kt) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlinx.coroutines.flow.internal.ChannelFlow$collectToFun$1.invokeSuspend(ChannelFlow.kt:56) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34) ~[kotlin-stdlib-2.4.21.jar:2.4.21]\n\tat kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100) ~[kotlinx-coroutines-core-jvm-1.11.0.jar:1.11.0]\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144) ~[?:?]\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642) ~[?:?]\n\tat java.base/java.lang.Thread.run(Thread.java:1583) ~[?:?]\n\nStack Trace: java.lang.RuntimeException: Failing Destination(stream=Descriptor(namespace=null, name=products), failAfter=3: failing at record 4)\n\tat io.airbyte.integrations.destination.dev_null.FailingAggregate.accept(DevNullAggregate.kt:111)\n\tat io.airbyte.cdk.load.dataflow.aggregate.AggregateStore.acceptFor(AggregateStore.kt:31)\n\tat io.airbyte.cdk.load.dataflow.stages.AggregateStage.apply(AggregateStage.kt:21)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1$1.emit(Emitters.kt:39)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$map$1$2.emit(Emitters.kt:217)\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow$collect$2.emit(DataFlowPipelineInputFlow.kt:51)\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow$collect$2.emit(DataFlowPipelineInputFlow.kt:38)\n\tat io.airbyte.cdk.load.dataflow.input.JsonDestinationMessageInputFlow.collect(JsonDestinationMessageInputFlow.kt:37)\n\tat io.airbyte.cdk.load.dataflow.input.DataFlowPipelineInputFlow.collect(DataFlowPipelineInputFlow.kt:38)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$map$1.collect(SafeCollector.common.kt:112)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invokeSuspend(Emitters.kt:36)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invoke(Emitters.kt)\n\tat io.airbyte.cdk.load.dataflow.pipeline.DataFlowPipeline$run$$inlined$transform$1.invoke(Emitters.kt)\n\tat kotlinx.coroutines.flow.SafeFlow.collectSafely(Builders.kt:57)\n\tat kotlinx.coroutines.flow.AbstractFlow.collect(Flow.kt:226)\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperatorImpl.flowCollect(ChannelFlow.kt:191)\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperator.collectTo$suspendImpl(ChannelFlow.kt:153)\n\tat kotlinx.coroutines.flow.internal.ChannelFlowOperator.collectTo(ChannelFlow.kt)\n\tat kotlinx.coroutines.flow.internal.ChannelFlow$collectToFun$1.invokeSuspend(ChannelFlow.kt:56)\n\tat kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)\n\tat kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)\n\tat java.base/java.lang.Thread.run(Thread.java:1583)\n",
+            "caller": {
+              "className": "io.airbyte.workers.internal.VersionedAirbyteStreamFactory",
+              "methodName": "internalLog$io_airbyte_oss_airbyte_commons_worker",
+              "lineNumber": 242,
+              "threadName": "pool-4-thread-4"
+            }
+          },
+          {
+            "timestamp": 1792501549684,
+            "level": "error",
+            "logSource": "destination",
+            "message": "\tat io.airbyte.integrations.destination.dev_null.FailingAggregate.accept(DevNullAggregate.kt:111)",
+            "caller": {
+              "className": "io.airbyte.container.orchestrator.worker.io.LocalContainerAirbyteDestination",
+              "methodName": "start$lambda$1",
+              "lineNumber": 109,
+              "threadName": "pool-6-thread-1"
+            }
+          },
+          {
+            "timestamp": 1792501548110,
+            "level": "warn",
+            "logSource": "destination",
+            "message": "WARN main c.k.j.j.JsonSchemaGenerator$MyJsonFormatVisitorWrapper(expectAnyFormat):725 Not able to generate jsonSchema-info for type: [simple type, class com.fasterxml.jackson.databind.JsonNode] - probably using custom serializer which does not override acceptJsonFormatVisitor",
+            "caller": {
+              "className": "io.airbyte.workers.internal.VersionedAirbyteStreamFactory",
+              "methodName": "internalLog$io_airbyte_oss_airbyte_commons_worker",
+              "lineNumber": 243,
+              "threadName": "pool-4-thread-4"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

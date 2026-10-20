@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import org.slf4j.Logger;
+import org.slf4j.event.Level;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
@@ -230,6 +231,35 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
 
     @Schema(
+        title = "Log frequency",
+        description = "Interval between fetches of the Airbyte logs of the running attempt while waiting, independent of `pollFrequency`. Defaults to 10 seconds. The remaining logs are always fetched once when the job ends"
+    )
+    @Builder.Default
+    @PluginProperty(group = "execution")
+    Property<Duration> logFrequency = Property.ofValue(Duration.ofSeconds(10));
+
+    @Schema(
+        title = "Maximum log events",
+        description = "Maximum number of Airbyte log events forwarded to the Kestra logs and stored in the `airbyteLogs` file, counted from the start of the job. Defaults to 100000. Later events are dropped and a warning is logged. Set to `0` to disable the Airbyte logs. Only applies when `wait` is enabled"
+    )
+    @Builder.Default
+    @PluginProperty(group = "execution")
+    Property<Integer> maxLogEvents = Property.ofValue(CheckStatus.DEFAULT_MAX_LOG_EVENTS);
+
+    @Schema(
+        title = "Platform log level",
+        description = """
+            Kestra log level for the Airbyte `platform` events that Airbyte reports at `info` level, such as stage transitions and workload scheduling. \
+            Defaults to `INFO`. Use `DEBUG` or `TRACE` to hide this noise at the default log level. \
+            `platform` warnings and errors, and the events of the source, destination and orchestrator, always keep their own level. \
+            The `airbyteLogs` file keeps the level reported by Airbyte. Only applies when `wait` is enabled
+            """
+    )
+    @Builder.Default
+    @PluginProperty(group = "advanced")
+    Property<Level> platformLogLevel = Property.ofValue(Level.INFO);
+
+    @Schema(
         title = "Behavior when a sync is already running",
         description = """
             Controls what happens when a sync is already running for this connection. A job that is pending, queued, running or incomplete counts as an active sync:
@@ -316,6 +346,9 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .token(getToken())
             .applicationCredentials(getApplicationCredentials())
             .pollFrequency(pollFrequency)
+            .logFrequency(logFrequency)
+            .maxLogEvents(maxLogEvents)
+            .platformLogLevel(platformLogLevel)
             .maxDuration(maxDuration)
             .onPartialSuccess(onPartialSuccess)
             .jobId(Property.ofValue(jobId.toString()))
@@ -338,6 +371,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .adopted(adopted)
             .job(checkStatusOutput.getJob())
             .attempts(checkStatusOutput.getAttempts())
+            .airbyteLogs(checkStatusOutput.getAirbyteLogs())
             .metadata(checkStatusOutput.getMetadata())
             .connection(checkStatusOutput.getConnection())
             .connectionSnapshot(checkStatusOutput.getConnectionSnapshot())
@@ -491,6 +525,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         )
         @PluginProperty(internalStorageURI = true)
         private final URI attempts;
+
+        @Schema(
+            title = "Airbyte logs file",
+            description = CheckStatus.AIRBYTE_LOGS_DESCRIPTION + ". Only available when `wait` is enabled"
+        )
+        @PluginProperty(internalStorageURI = true)
+        private final URI airbyteLogs;
 
         @Schema(
             title = "Sync metadata",

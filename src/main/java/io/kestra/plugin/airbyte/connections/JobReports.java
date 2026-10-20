@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -31,13 +32,18 @@ import io.kestra.plugin.airbyte.models.FailureSummary;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobStatus;
 import io.kestra.plugin.airbyte.models.JobSummary;
+import io.kestra.plugin.airbyte.models.LogRow;
 
 final class JobReports {
     private JobReports() {
     }
 
+    // Airbyte does not guarantee the order of the attempts, but the attempt id is the attempt number.
     static List<AttemptInfo> attempts(JobInfo jobInfo) {
-        return Optional.ofNullable(jobInfo.getAttempts()).orElseGet(List::of);
+        return Optional.ofNullable(jobInfo.getAttempts()).orElseGet(List::of).stream()
+            .filter(Objects::nonNull)
+            .sorted(Comparator.comparingLong(info -> Optional.ofNullable(info.getAttempt()).map(Attempt::getId).orElse(Long.MAX_VALUE)))
+            .toList();
     }
 
     static List<Attempt> attemptList(JobInfo jobInfo) {
@@ -109,6 +115,14 @@ final class JobReports {
     }
 
     static URI storeAttempts(RunContext runContext, List<AttemptRow> rows) throws IOException {
+        return storeRows(runContext, rows);
+    }
+
+    static URI storeLogs(RunContext runContext, List<LogRow> rows) throws IOException {
+        return storeRows(runContext, rows);
+    }
+
+    private static URI storeRows(RunContext runContext, List<?> rows) throws IOException {
         var file = runContext.workingDir().createTempFile(".ion").toFile();
         try (var output = Files.newOutputStream(file.toPath())) {
             for (var row : rows) {
