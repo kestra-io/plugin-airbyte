@@ -36,7 +36,7 @@ public final class StreamAssets {
     private static final int MAX_ID_LENGTH = 150;
     private static final Pattern INVALID_ID_CHARS = Pattern.compile("[^a-zA-Z0-9_-]");
     private static final Pattern LEADING_NON_ALPHANUMERIC = Pattern.compile("^[^a-zA-Z0-9]+");
-    private static final String SOURCE_NAMESPACE_PLACEHOLDER = "${SOURCE_NAMESPACE}";
+    public static final String SOURCE_NAMESPACE_PLACEHOLDER = "${SOURCE_NAMESPACE}";
 
     private StreamAssets() {
     }
@@ -106,6 +106,10 @@ public final class StreamAssets {
      * @throws IllegalStateException when an asset failed under {@code FAIL}
      */
     public static Optional<State.Type> emit(RunContext runContext, Task task, String connectionId, Supplier<List<Planned>> planner) {
+        // Core skips asset processing entirely without a declaration, so do the same
+        if (task.getAssets() == null) {
+            return Optional.empty();
+        }
         var failure = new Failure(runContext, task, connectionId);
         List<Planned> planned;
         try {

@@ -134,6 +134,7 @@ class SnapshotOutputsTest {
         return Sync.builder()
             .id(IdUtils.create())
             .type(Sync.class.getName())
+            .assets(new AssetsDeclaration(null, null, null, null))
             .url(Property.ofValue(wiremock.getHttpBaseUrl()))
             .token(Property.ofValue("token"))
             .connectionId(Property.ofValue(CONNECTION_ID));

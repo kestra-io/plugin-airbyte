@@ -9,6 +9,7 @@ import com.airbyte.api.models.shared.SourceResponse;
 import com.airbyte.api.models.shared.StreamConfiguration;
 
 import io.kestra.plugin.airbyte.DestinationLocations;
+import io.kestra.plugin.airbyte.StreamAssets;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionStream;
@@ -65,7 +66,7 @@ public final class CloudSnapshots {
         }
         var definition = connection.namespaceDefinition().orElse(null);
         var usesDefaultSchema = definition == NamespaceDefinitionEnum.DESTINATION
-            || (definition == NamespaceDefinitionEnum.CUSTOM_FORMAT && !connection.namespaceFormat().orElse("").contains("${SOURCE_NAMESPACE}"));
+            || (definition == NamespaceDefinitionEnum.CUSTOM_FORMAT && !connection.namespaceFormat().orElse("").contains(StreamAssets.SOURCE_NAMESPACE_PLACEHOLDER));
         return usesDefaultSchema ? DestinationLocations.parse(destination.destinationType(), destination.configuration()).orElse(null) : null;
     }
 

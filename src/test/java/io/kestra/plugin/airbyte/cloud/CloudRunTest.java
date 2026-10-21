@@ -63,7 +63,7 @@ class CloudRunTest {
                 .id(IdUtils.create())
                 .type(Sync.class.getName())
                 .connectionId(Property.ofValue(CONNECTION_ID))
-                .assets(behavior == null ? null : new AssetsDeclaration(null, null, null, Property.ofValue(behavior)))
+                .assets(new AssetsDeclaration(null, null, null, behavior == null ? null : Property.ofValue(behavior)))
                 .build()
         );
         var client = Airbyte.builder().serverURL(wiremock.getHttpBaseUrl() + "/v1").security(new Security().withBearerAuth("token")).build();

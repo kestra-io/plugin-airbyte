@@ -80,9 +80,8 @@ class StreamAssetsTest {
 
     private static Task task(AssetFailureBehavior behavior) throws IllegalVariableEvaluationException {
         var task = mock(Task.class);
-        if (behavior != null) {
-            when(task.getAssets()).thenReturn(new AssetsDeclaration(null, null, null, Property.ofValue(behavior)));
-        }
+        // A declaration without a behavior exercises the WARN default
+        when(task.getAssets()).thenReturn(new AssetsDeclaration(null, null, null, behavior == null ? null : Property.ofValue(behavior)));
         return task;
     }
 
@@ -341,15 +340,37 @@ class StreamAssetsTest {
             throw new IllegalStateException("boom");
         };
 
-        assertThrows(
+        var exception = assertThrows(
             IllegalStateException.class,
             () -> StreamAssets.emit(runContext(AssetFailureBehavior.FAIL, emitter, mock(Logger.class)), task(AssetFailureBehavior.FAIL), "conn-1", failing)
+        );
+        assertThat(
+            exception.getMessage(),
+            is(
+                "Failed to build the assets for connection conn-1: boom. "
+                    + "Set assets.assetFailureBehavior to WARN or IGNORE to not fail the task."
+            )
         );
         assertThat(
             StreamAssets.emit(runContext(AssetFailureBehavior.WARN, emitter, mock(Logger.class)), task(AssetFailureBehavior.WARN), "conn-1", failing),
             is(Optional.of(State.Type.WARNING))
         );
         verify(emitter, never()).emit(any());
+    }
+
+    @Test
+    void emit_does_nothing_without_an_assets_declaration() throws Exception {
+        var emitter = mock(AssetEmitter.class);
+        var logger = mock(Logger.class);
+        var planner = mock(Supplier.class);
+        when(planner.get()).thenThrow(new IllegalStateException("boom"));
+
+        var state = StreamAssets.emit(runContext(null, emitter, logger), mock(Task.class), "conn-1", planner);
+
+        assertThat(state.isPresent(), is(false));
+        verify(planner, never()).get();
+        verify(emitter, never()).emit(any());
+        verify(logger, never()).warn(anyString());
     }
 
     @Test
