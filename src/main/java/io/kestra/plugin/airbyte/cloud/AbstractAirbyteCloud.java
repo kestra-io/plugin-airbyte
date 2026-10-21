@@ -78,6 +78,17 @@ public abstract class AbstractAirbyteCloud extends Task {
     private Property<String> password;
 
     protected Airbyte client(RunContext runContext) throws Exception {
+        return client(runContext, new CustomHttpClient(runContext));
+    }
+
+    /**
+     * Single-attempt client for best-effort calls that must not wait behind the 5-minute retry loop of {@link CustomHttpClient}.
+     */
+    protected Airbyte snapshotClient(RunContext runContext) throws Exception {
+        return client(runContext, new SpeakeasyHTTPClient());
+    }
+
+    private Airbyte client(RunContext runContext, SpeakeasyHTTPClient httpClient) throws Exception {
         Security security = new Security();
 
         if (this.token != null) {
@@ -100,7 +111,7 @@ public abstract class AbstractAirbyteCloud extends Task {
         }
 
         return Airbyte.builder()
-            .client(new CustomHttpClient(runContext))
+            .client(httpClient)
             .security(security)
             .build();
     }

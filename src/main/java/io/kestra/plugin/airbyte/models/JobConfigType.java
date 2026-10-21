@@ -9,7 +9,9 @@ public enum JobConfigType {
     DISCOVER_SCHEMA("discover_schema"),
     GET_SPEC("get_spec"),
     SYNC("sync"),
-    RESET_CONNECTION("reset_connection");
+    RESET_CONNECTION("reset_connection"),
+    REFRESH("refresh"),
+    CLEAR("clear");
 
     private String value;
 

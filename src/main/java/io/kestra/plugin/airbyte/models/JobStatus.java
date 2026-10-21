@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 
 public enum JobStatus {
     PENDING("pending"),
+    QUEUED("queued"),
     RUNNING("running"),
     INCOMPLETE("incomplete"),
     FAILED("failed"),

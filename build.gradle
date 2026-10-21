@@ -10,6 +10,7 @@ plugins {
     id "com.gradleup.shadow" version "9.6.1"
     id 'signing'
     id 'net.researchgate.release' version '3.2.0'
+    id 'com.github.node-gradle.node' version '7.1.0'
 }
 
 def isBuildSnapshot = version.toString().endsWith("-SNAPSHOT")
@@ -165,6 +166,32 @@ jar {
 shadowJar {
     archiveClassifier.set(null)
     mergeServiceFiles()
+}
+
+/**********************************************************************************************************************\
+ * UI
+ **********************************************************************************************************************/
+// Registered only when ui/ exists so the build also works without a local Node install
+if (file('ui').exists()) {
+    tasks.register('npmInstallUI', com.github.gradle.node.npm.task.NpmTask) {
+        args = ['install', '--fetch-retries=5', '--fetch-retry-mintimeout=5000', '--fetch-retry-maxtimeout=60000']
+        workingDir = file('ui')
+        inputs.files(file('ui/package.json'), file('ui/package-lock.json'))
+        outputs.dir(file('ui/node_modules'))
+    }
+
+    tasks.register('buildUI', com.github.gradle.node.npm.task.NpmTask) {
+        dependsOn 'npmInstallUI'
+        args = ['run', 'build', '--', '--outDir', '../src/main/resources/plugin-ui']
+        workingDir = file('ui')
+        inputs.dir(file('ui/src'))
+        inputs.files(file('ui/package.json'), file('ui/package-lock.json'), file('ui/vite.config.ts'), file('ui/index.html'), file('ui/tsconfig.json'))
+        outputs.dir(file('src/main/resources/plugin-ui'))
+    }
+
+    processResources.dependsOn 'buildUI'
+    shadowJar.dependsOn 'buildUI'
+    tasks.matching { it.name == 'sourcesJar' }.configureEach { dependsOn 'buildUI' }
 }
 
 
