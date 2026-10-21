@@ -52,8 +52,8 @@ public final class DestinationLocations {
     }
 
     private static DestinationLocation of(String database, String schema, boolean schemaless) {
-        var rDatabase = usable(database);
-        return rDatabase == null ? null : new DestinationLocation(rDatabase, usable(schema), schemaless);
+        var usableDatabase = usable(database);
+        return usableDatabase == null ? null : new DestinationLocation(usableDatabase, usable(schema), schemaless);
     }
 
     // Airbyte masks secret fields with asterisks, which must never end up in an id

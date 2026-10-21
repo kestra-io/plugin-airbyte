@@ -368,12 +368,17 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
         // Core drops assets of failed runs, and a clear or reset would give false lineage.
         Optional<State.Type> assetState = Optional.empty();
+        IllegalStateException assetFailure = null;
         if (snapshot != null && ASSET_JOB_TYPES.contains(job.getConfigType()) && (status == JobStatus.SUCCEEDED || partialSuccessAsWarning)) {
             var assetSnapshot = snapshot;
-            assetState = StreamAssets.emit(
-                runContext, this, assetSnapshot.getConnection().getConnectionId(),
-                () -> StreamAssets.plan(assetSnapshot, StreamAssets.committed(metadata), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
-            );
+            try {
+                assetState = StreamAssets.emit(
+                    runContext, this, assetSnapshot.getConnection().getConnectionId(),
+                    () -> StreamAssets.plan(assetSnapshot, StreamAssets.committed(metadata), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
+                );
+            } catch (IllegalStateException e) {
+                assetFailure = e;
+            }
         }
 
         var output = Output.builder()
@@ -387,6 +392,11 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             .jobUrl(jobUrl)
             .state(partialSuccessAsWarning ? State.Type.WARNING : assetState.orElse(null))
             .build();
+
+        // Built first so a FAIL asset behavior does not drop the job outputs
+        if (assetFailure != null) {
+            throw new RunnableTaskException(assetFailure.getMessage(), assetFailure, output);
+        }
 
         if (status == JobStatus.SUCCEEDED) {
             return output;
