@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.airbyte.api.models.shared.ConnectionResponse;
 import com.airbyte.api.models.shared.DestinationResponse;
+import com.airbyte.api.models.shared.NamespaceDefinitionEnum;
 import com.airbyte.api.models.shared.SourceResponse;
 import com.airbyte.api.models.shared.StreamConfiguration;
 
@@ -12,6 +13,7 @@ import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionStream;
 import io.kestra.plugin.airbyte.models.Destination;
+import io.kestra.plugin.airbyte.models.DestinationLocation;
 import io.kestra.plugin.airbyte.models.Source;
 import io.kestra.plugin.airbyte.models.StreamConfig;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
@@ -48,8 +50,23 @@ public final class CloudSnapshots {
             )
             .source(source == null ? null : toSource(source))
             .destination(destination == null ? null : toDestination(destination))
-            .destinationLocation(destination == null ? null : DestinationLocations.parse(destination.destinationType(), destination.configuration()).orElse(null))
+            .destinationLocation(location(connection, destination))
             .build();
+    }
+
+    /**
+     * The Cloud API does not report the namespace of a stream, so the destination default schema is only right when the connection writes
+     * there. For a {@code source} namespace or a custom format using {@code ${SOURCE_NAMESPACE}} the location stays null and asset ids fall
+     * back to the destination ID.
+     */
+    private static DestinationLocation location(ConnectionResponse connection, DestinationResponse destination) {
+        if (destination == null) {
+            return null;
+        }
+        var definition = connection.namespaceDefinition().orElse(null);
+        var usesDefaultSchema = definition == NamespaceDefinitionEnum.DESTINATION
+            || (definition == NamespaceDefinitionEnum.CUSTOM_FORMAT && !connection.namespaceFormat().orElse("").contains("${SOURCE_NAMESPACE}"));
+        return usesDefaultSchema ? DestinationLocations.parse(destination.destinationType(), destination.configuration()).orElse(null) : null;
     }
 
     private static Source toSource(SourceResponse source) {

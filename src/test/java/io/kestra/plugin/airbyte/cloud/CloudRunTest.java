@@ -2,6 +2,7 @@ package io.kestra.plugin.airbyte.cloud;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.junit.jupiter.api.Test;
@@ -14,11 +15,14 @@ import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 
 import io.kestra.core.junit.annotations.KestraTest;
+import io.kestra.core.models.assets.AssetsDeclaration;
 import io.kestra.core.models.executions.LogEntry;
+import io.kestra.core.models.flows.State;
 import io.kestra.core.models.property.Property;
+import io.kestra.core.models.tasks.AssetFailureBehavior;
 import io.kestra.core.models.tasks.RunnableTaskException;
 import io.kestra.core.queues.DispatchQueueInterface;
-import io.kestra.core.runners.RunContext;
+import io.kestra.core.runners.AssetEmitter;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
@@ -50,11 +54,16 @@ class CloudRunTest {
 
     // The SDK takes a server URL, and the protected client factories are reachable from this package, so no production seam is needed.
     private static Sync task(WireMockRuntimeInfo wiremock) throws Exception {
+        return task(wiremock, null);
+    }
+
+    private static Sync task(WireMockRuntimeInfo wiremock, AssetFailureBehavior behavior) throws Exception {
         var task = Mockito.spy(
             Sync.builder()
                 .id(IdUtils.create())
                 .type(Sync.class.getName())
                 .connectionId(Property.ofValue(CONNECTION_ID))
+                .assets(behavior == null ? null : new AssetsDeclaration(null, null, null, Property.ofValue(behavior)))
                 .build()
         );
         var client = Airbyte.builder().serverURL(wiremock.getHttpBaseUrl() + "/v1").security(new Security().withBearerAuth("token")).build();
@@ -126,6 +135,44 @@ class CloudRunTest {
             assertThat(new String(stream.readAllBytes(), StandardCharsets.UTF_8), not(containsString("hunter2")));
         }
         Mockito.verify(runContext, Mockito.atLeastOnce()).assets();
+    }
+
+    private AbstractTrigger.Output runWithFailingEmitter(WireMockRuntimeInfo wiremock, AssetFailureBehavior behavior) throws Exception {
+        stubJob(55, "succeeded");
+        stubSnapshot();
+
+        var emitter = Mockito.mock(AssetEmitter.class);
+        Mockito.doThrow(new IllegalArgumentException("invalid asset")).when(emitter).emit(Mockito.any());
+
+        var task = task(wiremock, behavior);
+        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        Mockito.doReturn(emitter).when(runContext).assets();
+        return task.run(runContext);
+    }
+
+    @Test
+    void failing_asset_ends_in_warning_by_default(WireMockRuntimeInfo wiremock) throws Exception {
+        var out = runWithFailingEmitter(wiremock, null);
+
+        assertThat(out.finalState(), is(Optional.of(State.Type.WARNING)));
+        assertThat(out.getJob().getJobId(), is(55L));
+    }
+
+    @Test
+    void failing_asset_is_ignored_under_ignore_behavior(WireMockRuntimeInfo wiremock) throws Exception {
+        var out = runWithFailingEmitter(wiremock, AssetFailureBehavior.IGNORE);
+
+        assertThat(out.finalState(), is(Optional.empty()));
+    }
+
+    @Test
+    void failing_asset_fails_the_task_but_keeps_the_outputs_under_fail_behavior(WireMockRuntimeInfo wiremock) throws Exception {
+        var thrown = assertThrows(RunnableTaskException.class, () -> runWithFailingEmitter(wiremock, AssetFailureBehavior.FAIL));
+
+        assertThat(thrown.getMessage(), containsString("invalid asset"));
+        var output = (AbstractTrigger.Output) thrown.getOutput();
+        assertThat(output.getJob().getJobId(), is(55L));
+        assertThat(output.getConnection(), notNullValue());
     }
 
     @Test

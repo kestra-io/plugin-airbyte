@@ -298,10 +298,13 @@ class StreamAssetsTest {
             () -> StreamAssets.emit(runContext(AssetFailureBehavior.FAIL, emitter, mock(Logger.class)), task(AssetFailureBehavior.FAIL), "conn-1", StreamAssetsTest::oneAsset)
         );
 
-        assertThat(exception.getMessage(), containsString("dst-1.public.customers"));
-        assertThat(exception.getMessage(), containsString("conn-1"));
-        assertThat(exception.getMessage(), containsString("invalid asset"));
-        assertThat(exception.getMessage(), containsString("assets.assetFailureBehavior"));
+        assertThat(
+            exception.getMessage(),
+            is(
+                "Failed to emit asset 'dst-1.public.customers' for connection conn-1: invalid asset. "
+                    + "Set assets.assetFailureBehavior to WARN or IGNORE to not fail the task."
+            )
+        );
     }
 
     @Test
@@ -401,11 +404,18 @@ class StreamAssetsTest {
     @Test
     void schemaless_destination_gives_database_table_ids() {
         var planned = StreamAssets.plan(
-            located("MySQL", new DestinationLocation("shop", null, true), "source", null, stream("customers", "ignored", null)),
-            Map.of(descriptor("customers", "ignored"), rows(5)), 12L, "succeeded", true
+            located("MySQL", new DestinationLocation("shop", null, true), "source", null, stream("customers", "sales", null)),
+            Map.of(descriptor("customers", "sales"), rows(5)), 12L, "succeeded", true
+        );
+        var noNamespace = StreamAssets.plan(
+            located("MySQL", new DestinationLocation("shop", null, true), "destination", null, stream("customers", "sales", null)),
+            Map.of(descriptor("customers", "sales"), rows(5)), 12L, "succeeded", true
         );
 
-        assertThat(planned.getFirst().output().getId(), is("shop.customers"));
+        assertThat(planned.getFirst().output().getId(), is("sales.customers"));
+        assertThat(planned.getFirst().output().getMetadata().get("database"), is("sales"));
+        assertThat(noNamespace.getFirst().output().getId(), is("shop.customers"));
+        assertThat(noNamespace.getFirst().output().getMetadata().get("database"), is("shop"));
     }
 
     @Test

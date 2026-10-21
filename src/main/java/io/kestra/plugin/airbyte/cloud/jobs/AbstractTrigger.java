@@ -187,14 +187,23 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
         var finalJob = Job.of(finalJobResponse);
         Optional<State.Type> assetState = Optional.empty();
+        IllegalStateException assetFailure = null;
         if (emitsAssets() && snapshot.isPresent() && finalJob.status == JobStatusEnum.SUCCEEDED) {
-            assetState = StreamAssets.emit(
-                runContext, this, rConnectionId,
-                () -> StreamAssets.plan(snapshot.get(), Map.of(), finalJob.jobId, finalJob.status.value(), true)
-            );
+            try {
+                assetState = StreamAssets.emit(
+                    runContext, this, rConnectionId,
+                    () -> StreamAssets.plan(snapshot.get(), Map.of(), finalJob.jobId, finalJob.status.value(), true)
+                );
+            } catch (IllegalStateException e) {
+                assetFailure = e;
+            }
         }
 
         var output = outputOf(runContext, finalJob, snapshot, assetState.orElse(null));
+        // Built first so a FAIL asset behavior does not drop the job outputs
+        if (assetFailure != null) {
+            throw new RunnableTaskException(assetFailure.getMessage(), assetFailure, output);
+        }
         if (isFailure(finalJob.status)) {
             throw new RunnableTaskException(failureMessage(finalJob.jobId, finalJob.status, output.getJobUrl()), output);
         }

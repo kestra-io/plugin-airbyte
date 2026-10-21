@@ -260,8 +260,9 @@ class SnapshotOutputsTest {
         var fail = sync(wiremock).assets(new AssetsDeclaration(null, null, null, Property.ofValue(AssetFailureBehavior.FAIL))).build();
         var failContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, fail, Map.of()));
         Mockito.doReturn(emitter).when(failContext).assets();
-        var exception = assertThrows(IllegalStateException.class, () -> fail.run(failContext));
+        var exception = assertThrows(RunnableTaskException.class, () -> fail.run(failContext));
         assertThat(exception.getMessage(), containsString("assets.assetFailureBehavior"));
+        assertThat(exception.getOutput(), notNullValue());
     }
 
     @Test

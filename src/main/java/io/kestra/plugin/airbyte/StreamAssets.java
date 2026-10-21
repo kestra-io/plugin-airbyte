@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -33,6 +34,8 @@ public final class StreamAssets {
     public static final String TABLE_ASSET_TYPE = "io.kestra.plugin.ee.assets.Table";
 
     private static final int MAX_ID_LENGTH = 150;
+    private static final Pattern INVALID_ID_CHARS = Pattern.compile("[^a-zA-Z0-9_-]");
+    private static final Pattern LEADING_NON_ALPHANUMERIC = Pattern.compile("^[^a-zA-Z0-9]+");
     private static final String SOURCE_NAMESPACE_PLACEHOLDER = "${SOURCE_NAMESPACE}";
 
     private StreamAssets() {
@@ -104,21 +107,24 @@ public final class StreamAssets {
      */
     public static Optional<State.Type> emit(RunContext runContext, Task task, String connectionId, Supplier<List<Planned>> planner) {
         var failure = new Failure(runContext, task, connectionId);
+        List<Planned> planned;
         try {
-            for (var asset : planner.get()) {
-                try {
-                    runContext.assets().emit(new AssetEmit(List.of(asset.input()), List.<Asset> of(asset.output())));
-                    runContext.logger().debug("Emitted asset '{}'", asset.output().getId());
-                } catch (UnsupportedOperationException e) {
-                    throw e;
-                } catch (Exception e) {
-                    failure.record(asset.output().getId(), e);
-                }
-            }
-        } catch (UnsupportedOperationException e) {
-            runContext.logger().debug("Asset emission is not supported in this edition, skipping");
+            planned = planner.get();
         } catch (Exception e) {
             failure.record(null, e);
+            return failure.warned ? Optional.of(State.Type.WARNING) : Optional.empty();
+        }
+
+        for (var asset : planned) {
+            try {
+                runContext.assets().emit(new AssetEmit(List.of(asset.input()), List.<Asset> of(asset.output())));
+                runContext.logger().debug("Emitted asset '{}'", asset.output().getId());
+            } catch (UnsupportedOperationException e) {
+                runContext.logger().debug("Asset emission is not supported in this edition, skipping");
+                break;
+            } catch (Exception e) {
+                failure.record(asset.output().getId(), e);
+            }
         }
         return failure.warned ? Optional.of(State.Type.WARNING) : Optional.empty();
     }
@@ -186,9 +192,22 @@ public final class StreamAssets {
         var location = snapshot.getDestinationLocation();
         var schema = schema(snapshot, stream);
         if (location != null && (location.schemaless() || schema != null)) {
-            return sanitize(location.database(), schema, table);
+            return sanitize(database(snapshot, stream), schema, table);
         }
         return sanitize(connection.getDestinationId(), namespace(connection, stream.getStream()), table);
+    }
+
+    // MySQL and ClickHouse have no schema level: the Airbyte namespace is the database
+    private static String database(ConnectionSnapshot snapshot, ConnectionStream stream) {
+        var location = snapshot.getDestinationLocation();
+        if (location == null) {
+            return null;
+        }
+        if (location.schemaless()) {
+            var namespace = namespace(snapshot.getConnection(), stream.getStream());
+            return namespace != null ? namespace : location.database();
+        }
+        return location.database();
     }
 
     private static String schema(ConnectionSnapshot snapshot, ConnectionStream stream) {
@@ -204,9 +223,9 @@ public final class StreamAssets {
     static String sanitize(String... segments) {
         var id = Stream.of(segments)
             .filter(Objects::nonNull)
-            .map(segment -> segment.replaceAll("[^a-zA-Z0-9_-]", "_"))
-            .collect(Collectors.joining("."))
-            .replaceFirst("^[^a-zA-Z0-9]+", "");
+            .map(segment -> INVALID_ID_CHARS.matcher(segment).replaceAll("_"))
+            .collect(Collectors.joining("."));
+        id = LEADING_NON_ALPHANUMERIC.matcher(id).replaceFirst("");
         if (id.length() <= MAX_ID_LENGTH) {
             return id;
         }
@@ -217,14 +236,13 @@ public final class StreamAssets {
         var connection = snapshot.getConnection();
         var config = stream.getConfig();
         var table = tableName(connection, stream);
-        var location = snapshot.getDestinationLocation();
         var source = snapshot.getSource();
 
         var metadata = new LinkedHashMap<String, Object>();
         put(metadata, "system", snapshot.getDestination() == null ? null : snapshot.getDestination().getDestinationName());
         put(metadata, "destinationName", snapshot.getDestination() == null ? null : snapshot.getDestination().getName());
         put(metadata, "destinationId", connection.getDestinationId());
-        put(metadata, "database", location == null ? null : location.database());
+        put(metadata, "database", database(snapshot, stream));
         put(metadata, "schema", schema(snapshot, stream));
         put(metadata, "name", table);
         put(metadata, "sourceId", connection.getSourceId());

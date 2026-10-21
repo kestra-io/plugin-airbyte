@@ -86,7 +86,7 @@ class CloudSnapshotsTest {
         var source = source();
         var destination = destination();
 
-        var snapshot = CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.SOURCE, null), source, destination);
+        var snapshot = CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.DESTINATION, null), source, destination);
 
         verify(source, never()).configuration();
         verify(destination).configuration();
@@ -145,6 +145,25 @@ class CloudSnapshotsTest {
             CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.CUSTOM_FORMAT, "landing"), source(), destination()), Map.of(), 7L, "succeeded", true
         );
         assertThat(custom.getFirst().output().getId(), is("dst-1.landing.raw_customers"));
+    }
+
+    @Test
+    void cloud_assets_ignore_the_destination_location_when_the_namespace_comes_from_the_source() {
+        var destination = destination();
+        when(destination.destinationType()).thenReturn("postgres");
+        when(destination.configuration()).thenReturn(
+            DestinationConfiguration.of(DestinationPostgres.builder().host("db.example.com").database("analytics").schema("public").username("airbyte").build())
+        );
+
+        var source = StreamAssets.plan(
+            CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.SOURCE, null), source(), destination), Map.of(), 7L, "succeeded", true
+        );
+        var customWithSourceNamespace = StreamAssets.plan(
+            CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.CUSTOM_FORMAT, "raw_${SOURCE_NAMESPACE}"), source(), destination), Map.of(), 7L, "succeeded", true
+        );
+
+        assertThat(source.stream().map(asset -> asset.output().getId()).toList(), contains("dst-1.raw_customers", "dst-1.raw_orders"));
+        assertThat(customWithSourceNamespace.getFirst().output().getId(), is("dst-1.raw_customers"));
     }
 
     @Test
