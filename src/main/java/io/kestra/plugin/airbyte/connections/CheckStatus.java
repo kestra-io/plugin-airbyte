@@ -221,13 +221,14 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
         // Check rendered jobId provided is a long
         Long jobIdRendered = Long.parseLong(runContext.render(this.jobId).as(String.class).orElse(null));
+        String rUrl = runContext.render(getUrl()).as(String.class).orElseThrow();
 
         // wait for end
         JobInfo finalJobStatus = Await.until(
             throwSupplier(() ->
             {
                 HttpRequest.HttpRequestBuilder fetchJobRequest = HttpRequest.builder()
-                    .uri(URI.create(getUrl() + "/api/v1/jobs/get/"))
+                    .uri(URI.create(rUrl + "/api/v1/jobs/get/"))
                     .method("POST")
                     .body(
                         HttpRequest.JsonRequestBody.builder()
