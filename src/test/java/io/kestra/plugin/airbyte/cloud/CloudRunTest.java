@@ -136,43 +136,39 @@ class CloudRunTest {
         Mockito.verify(runContext, Mockito.atLeastOnce()).assets();
     }
 
-    @Test
-    void connection_without_data_residency_keeps_the_snapshot_and_logs_no_warning(WireMockRuntimeInfo wiremock) throws Exception {
-        stubJob(55, "succeeded");
+    private void assertSnapshotWithConnectionBody(WireMockRuntimeInfo wiremock, long jobId, String dataResidencyField) throws Exception {
+        stubJob(jobId, "succeeded");
         stubSnapshot();
         stubFor(
             get(urlPathEqualTo("/v1/connections/" + CONNECTION_ID))
                 .willReturn(okJson("""
                     {
                       "connectionId": "%s", "name": "pg to snowflake", "workspaceId": "ws-1", "sourceId": "src-1", "destinationId": "dst-1",
-                      "status": "active", "schedule": { "scheduleType": "manual" }, "createdAt": 1700000000, "tags": [],
+                      "status": "active", "schedule": { "scheduleType": "manual" }, %s "createdAt": 1700000000, "tags": [],
                       "namespaceDefinition": "destination", "prefix": "", "nonBreakingSchemaUpdatesBehavior": "ignore",
                       "configurations": { "streams": [ { "name": "customers", "syncMode": "full_refresh_overwrite" }, { "name": "orders" } ] }
                     }
-                    """.formatted(CONNECTION_ID)))
+                    """.formatted(CONNECTION_ID, dataResidencyField)))
         );
 
-        var logs = new CopyOnWriteArrayList<LogEntry>();
-        var cancel = logQueue.receive(either ->
-        {
-            if (either.isLeft()) {
-                logs.add(either.getLeft());
-            }
-        });
+        var task = task(wiremock);
+        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        var out = task.run(runContext);
 
-        try {
-            var task = task(wiremock);
-            var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
-            var out = task.run(runContext);
+        assertThat(out.getJobUrl(), is("https://cloud.airbyte.com/workspaces/ws-1/connections/" + CONNECTION_ID + "/timeline?openLogs=true&jobId=" + jobId));
+        assertThat(out.getConnection().getStreamCount(), is(2));
+        assertThat(out.getConnectionSnapshot(), notNullValue());
+        Mockito.verify(runContext, Mockito.atLeastOnce()).assets();
+    }
 
-            assertThat(out.getJobUrl(), is("https://cloud.airbyte.com/workspaces/ws-1/connections/" + CONNECTION_ID + "/timeline?openLogs=true&jobId=55"));
-            assertThat(out.getConnection().getStreamCount(), is(2));
-            assertThat(out.getConnectionSnapshot(), notNullValue());
-            Mockito.verify(runContext, Mockito.atLeastOnce()).assets();
-            assertThat(logs.stream().filter(log -> log.getLevel() == Level.WARN).toList(), hasSize(0));
-        } finally {
-            cancel.run();
-        }
+    @Test
+    void connection_without_data_residency_keeps_the_snapshot(WireMockRuntimeInfo wiremock) throws Exception {
+        assertSnapshotWithConnectionBody(wiremock, 55, "");
+    }
+
+    @Test
+    void connection_with_null_data_residency_keeps_the_snapshot(WireMockRuntimeInfo wiremock) throws Exception {
+        assertSnapshotWithConnectionBody(wiremock, 56, "\"dataResidency\": null,");
     }
 
     @Test

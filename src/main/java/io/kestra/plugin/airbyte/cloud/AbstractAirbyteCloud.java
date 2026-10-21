@@ -5,8 +5,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.http.HttpRequest;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -160,10 +160,7 @@ public abstract class AbstractAirbyteCloud extends Task {
         }
     }
 
-    /**
-     * The live Airbyte Cloud API no longer returns {@code dataResidency} on a connection, but the SDK still requires it and fails to read the response.
-     * The snapshot never reads that field, so a placeholder is added when it is missing.
-     */
+    /** com.airbyte:api 2.0.0 requires dataResidency, which Airbyte Cloud no longer returns: add a placeholder so the snapshot can be read. */
     public static class ConnectionCompatHttpClient extends SpeakeasyHTTPClient {
         private static final Pattern CONNECTION_PATH = Pattern.compile(".*/connections/[^/]+");
 
@@ -174,9 +171,12 @@ public abstract class AbstractAirbyteCloud extends Task {
                 return response;
             }
 
-            var body = response.body().readAllBytes();
+            byte[] body;
+            try (var in = response.body()) {
+                body = in.readAllBytes();
+            }
             try {
-                if (JacksonMapper.ofJson().readTree(body) instanceof ObjectNode connection && !connection.has("dataResidency")) {
+                if (JacksonMapper.ofJson().readTree(body) instanceof ObjectNode connection && !connection.hasNonNull("dataResidency")) {
                     body = JacksonMapper.ofJson().writeValueAsBytes(connection.put("dataResidency", "auto"));
                 }
             } catch (IOException ignored) {
