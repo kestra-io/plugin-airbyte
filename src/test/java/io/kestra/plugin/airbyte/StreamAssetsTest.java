@@ -2,30 +2,43 @@ package io.kestra.plugin.airbyte;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.Logger;
 
+import io.kestra.core.exceptions.IllegalVariableEvaluationException;
+import io.kestra.core.models.assets.AssetsDeclaration;
 import io.kestra.core.models.assets.External;
+import io.kestra.core.models.flows.State;
+import io.kestra.core.models.property.Property;
+import io.kestra.core.models.tasks.AssetFailureBehavior;
+import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.AssetEmit;
 import io.kestra.core.runners.AssetEmitter;
 import io.kestra.core.runners.RunContext;
+import io.kestra.core.runners.RunContextProperty;
+import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionStream;
 import io.kestra.plugin.airbyte.models.Destination;
+import io.kestra.plugin.airbyte.models.DestinationLocation;
+import io.kestra.plugin.airbyte.models.Source;
 import io.kestra.plugin.airbyte.models.StreamConfig;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
 import io.kestra.plugin.airbyte.models.SyncMetadata;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -53,6 +66,40 @@ class StreamAssetsTest {
             )
             .destination(Destination.builder().destinationId("dst-1").name("warehouse").destinationName("Snowflake").build())
             .build();
+    }
+
+    private static ConnectionSnapshot located(String type, DestinationLocation location, String namespaceDefinition, String prefix, ConnectionStream... streams) {
+        var base = snapshot(namespaceDefinition, null, prefix, streams);
+        return ConnectionSnapshot.builder()
+            .connection(base.getConnection())
+            .source(Source.builder().sourceId("src-1").name("production db").sourceName("Postgres").build())
+            .destination(Destination.builder().destinationId("dst-1").name("warehouse").destinationName(type).build())
+            .destinationLocation(location)
+            .build();
+    }
+
+    private static Task task(AssetFailureBehavior behavior) throws IllegalVariableEvaluationException {
+        var task = mock(Task.class);
+        // A declaration without a behavior exercises the WARN default
+        when(task.getAssets()).thenReturn(new AssetsDeclaration(null, null, null, behavior == null ? null : Property.ofValue(behavior)));
+        return task;
+    }
+
+    private static RunContext runContext(AssetFailureBehavior behavior, AssetEmitter emitter, Logger logger) throws Exception {
+        var runContext = mock(RunContext.class);
+        when(runContext.logger()).thenReturn(logger);
+        when(runContext.assets()).thenReturn(emitter);
+        var property = mock(RunContextProperty.class);
+        when(property.as(AssetFailureBehavior.class)).thenReturn(Optional.ofNullable(behavior));
+        when(runContext.render(any(Property.class))).thenReturn(property);
+        return runContext;
+    }
+
+    private static List<StreamAssets.Planned> oneAsset() {
+        return StreamAssets.plan(
+            snapshot("source", null, null, stream("customers", "public", null)),
+            Map.of(descriptor("customers", "public"), rows(5)), 12L, "succeeded", true
+        );
     }
 
     private static StreamAssets.Committed rows(long records) {
@@ -206,7 +253,7 @@ class StreamAssetsTest {
             snapshot("source", null, null, stream("customers", "public", null), stream("orders", "public", null)),
             Map.of(descriptor("customers", "public"), rows(5), descriptor("orders", "public"), rows(2)), 12L, "succeeded", true
         );
-        StreamAssets.emit(runContext, planned);
+        StreamAssets.emit(runContext, task(null), "conn-1", () -> planned);
 
         var captor = ArgumentCaptor.forClass(AssetEmit.class);
         verify(emitter, times(2)).emit(captor.capture());
@@ -233,9 +280,235 @@ class StreamAssetsTest {
             snapshot("source", null, null, stream("customers", "public", null), stream("orders", "public", null)),
             Map.of(descriptor("customers", "public"), rows(5), descriptor("orders", "public"), rows(2)), 12L, "succeeded", true
         );
-        StreamAssets.emit(runContext, planned);
+        var state = StreamAssets.emit(runContext, task(null), "conn-1", () -> planned);
 
+        assertThat(state.isPresent(), is(false));
         verify(emitter, times(1)).emit(any());
         verify(logger, never()).warn(anyString(), any(Object.class), any(Object.class));
+    }
+
+    @Test
+    void emit_fails_the_task_under_fail_behavior() throws Exception {
+        var emitter = mock(AssetEmitter.class);
+        doThrow(new IllegalArgumentException("invalid asset")).when(emitter).emit(any());
+
+        var exception = assertThrows(
+            IllegalStateException.class,
+            () -> StreamAssets.emit(runContext(AssetFailureBehavior.FAIL, emitter, mock(Logger.class)), task(AssetFailureBehavior.FAIL), "conn-1", StreamAssetsTest::oneAsset)
+        );
+
+        assertThat(
+            exception.getMessage(),
+            is(
+                "Failed to emit asset 'dst-1.public.customers' for connection conn-1: invalid asset. "
+                    + "Set assets.assetFailureBehavior to WARN or IGNORE to not fail the task."
+            )
+        );
+    }
+
+    @Test
+    void emit_ends_in_warning_under_warn_behavior_and_by_default() throws Exception {
+        var emitter = mock(AssetEmitter.class);
+        doThrow(new IllegalArgumentException("invalid asset")).when(emitter).emit(any());
+        var logger = mock(Logger.class);
+
+        var explicit = StreamAssets.emit(runContext(AssetFailureBehavior.WARN, emitter, logger), task(AssetFailureBehavior.WARN), "conn-1", StreamAssetsTest::oneAsset);
+        var byDefault = StreamAssets.emit(runContext(null, emitter, logger), task(null), "conn-1", StreamAssetsTest::oneAsset);
+
+        assertThat(explicit, is(Optional.of(State.Type.WARNING)));
+        assertThat(byDefault, is(Optional.of(State.Type.WARNING)));
+        verify(logger, times(2)).warn(anyString());
+    }
+
+    @Test
+    void emit_is_silent_under_ignore_behavior() throws Exception {
+        var emitter = mock(AssetEmitter.class);
+        doThrow(new IllegalArgumentException("invalid asset")).when(emitter).emit(any());
+        var logger = mock(Logger.class);
+
+        var state = StreamAssets.emit(runContext(AssetFailureBehavior.IGNORE, emitter, logger), task(AssetFailureBehavior.IGNORE), "conn-1", StreamAssetsTest::oneAsset);
+
+        assertThat(state.isPresent(), is(false));
+        verify(logger, never()).warn(anyString());
+    }
+
+    @Test
+    void emit_applies_the_behavior_when_building_the_assets_fails() throws Exception {
+        var emitter = mock(AssetEmitter.class);
+        Supplier<List<StreamAssets.Planned>> failing = () ->
+        {
+            throw new IllegalStateException("boom");
+        };
+
+        var exception = assertThrows(
+            IllegalStateException.class,
+            () -> StreamAssets.emit(runContext(AssetFailureBehavior.FAIL, emitter, mock(Logger.class)), task(AssetFailureBehavior.FAIL), "conn-1", failing)
+        );
+        assertThat(
+            exception.getMessage(),
+            is(
+                "Failed to build the assets for connection conn-1: boom. "
+                    + "Set assets.assetFailureBehavior to WARN or IGNORE to not fail the task."
+            )
+        );
+        assertThat(
+            StreamAssets.emit(runContext(AssetFailureBehavior.WARN, emitter, mock(Logger.class)), task(AssetFailureBehavior.WARN), "conn-1", failing),
+            is(Optional.of(State.Type.WARNING))
+        );
+        verify(emitter, never()).emit(any());
+    }
+
+    @Test
+    void emit_does_nothing_without_an_assets_declaration() throws Exception {
+        var emitter = mock(AssetEmitter.class);
+        var logger = mock(Logger.class);
+        var planner = mock(Supplier.class);
+        when(planner.get()).thenThrow(new IllegalStateException("boom"));
+
+        var state = StreamAssets.emit(runContext(null, emitter, logger), mock(Task.class), "conn-1", planner);
+
+        assertThat(state.isPresent(), is(false));
+        verify(planner, never()).get();
+        verify(emitter, never()).emit(any());
+        verify(logger, never()).warn(anyString());
+    }
+
+    @Test
+    void emit_falls_back_to_warn_when_the_behavior_cannot_be_rendered() throws Exception {
+        var emitter = mock(AssetEmitter.class);
+        doThrow(new IllegalArgumentException("invalid asset")).when(emitter).emit(any());
+        var runContext = runContext(null, emitter, mock(Logger.class));
+        when(runContext.render(any(Property.class))).thenThrow(new IllegalStateException("bad"));
+
+        assertThat(StreamAssets.emit(runContext, task(AssetFailureBehavior.FAIL), "conn-1", StreamAssetsTest::oneAsset), is(Optional.of(State.Type.WARNING)));
+    }
+
+    @Test
+    void postgres_location_gives_database_schema_table_ids() {
+        var planned = StreamAssets.plan(
+            located("Postgres", new DestinationLocation("analytics", "public", false), "destination", "raw_", stream("customers", "public", null)),
+            Map.of(descriptor("customers", "public"), rows(5)), 12L, "succeeded", true
+        );
+
+        var table = planned.getFirst().output();
+        assertThat(table.getId(), is("analytics.public.raw_customers"));
+        assertThat(table.getMetadata().get("destinationId"), is("dst-1"));
+        assertThat(table.getMetadata().get("database"), is("analytics"));
+        assertThat(table.getMetadata().get("schema"), is("public"));
+        assertThat(table.getMetadata().get("name"), is("raw_customers"));
+        assertThat(table.getMetadata().get("sourceId"), is("src-1"));
+        assertThat(table.getMetadata().get("sourceName"), is("production db"));
+        assertThat(table.getMetadata().get("sourceType"), is("Postgres"));
+        assertThat(planned.getFirst().input().id(), is("src-1.public.customers"));
+    }
+
+    @Test
+    void stream_namespace_wins_over_the_default_schema() {
+        var planned = StreamAssets.plan(
+            located("Snowflake", new DestinationLocation("ANALYTICS", "PUBLIC", false), "source", null, stream("customers", "sales", "ORDERS_TBL")),
+            Map.of(descriptor("customers", "sales"), rows(5)), 12L, "succeeded", true
+        );
+
+        assertThat(planned.getFirst().output().getId(), is("ANALYTICS.sales.ORDERS_TBL"));
+    }
+
+    @Test
+    void bigquery_location_uses_project_and_dataset() {
+        var planned = StreamAssets.plan(
+            located("BigQuery", new DestinationLocation("my-project", "raw", false), "destination", null, stream("customers", null, null)),
+            Map.of(descriptor("customers", null), rows(5)), 12L, "succeeded", true
+        );
+
+        assertThat(planned.getFirst().output().getId(), is("my-project.raw.customers"));
+    }
+
+    @Test
+    void schemaless_destination_gives_database_table_ids() {
+        var planned = StreamAssets.plan(
+            located("MySQL", new DestinationLocation("shop", null, true), "source", null, stream("customers", "sales", null)),
+            Map.of(descriptor("customers", "sales"), rows(5)), 12L, "succeeded", true
+        );
+        var noNamespace = StreamAssets.plan(
+            located("MySQL", new DestinationLocation("shop", null, true), "destination", null, stream("customers", "sales", null)),
+            Map.of(descriptor("customers", "sales"), rows(5)), 12L, "succeeded", true
+        );
+
+        assertThat(planned.getFirst().output().getId(), is("sales.customers"));
+        assertThat(planned.getFirst().output().getMetadata().get("database"), is("sales"));
+        assertThat(noNamespace.getFirst().output().getId(), is("shop.customers"));
+        assertThat(noNamespace.getFirst().output().getMetadata().get("database"), is("shop"));
+    }
+
+    @Test
+    void custom_format_namespace_is_used_with_a_location() {
+        var base = snapshot("customformat", "raw_${SOURCE_NAMESPACE}", null, stream("customers", "sales", null));
+        var snapshot = ConnectionSnapshot.builder()
+            .connection(base.getConnection())
+            .destination(base.getDestination())
+            .destinationLocation(new DestinationLocation("analytics", "public", false))
+            .build();
+
+        var planned = StreamAssets.plan(snapshot, Map.of(descriptor("customers", "sales"), rows(5)), 12L, "succeeded", true);
+
+        assertThat(planned.getFirst().output().getId(), is("analytics.raw_sales.customers"));
+    }
+
+    @Test
+    void unresolved_location_falls_back_to_the_destination_uuid() {
+        var planned = StreamAssets.plan(
+            located("SomethingNew", null, "source", null, stream("customers", "public", null)),
+            Map.of(descriptor("customers", "public"), rows(5)), 12L, "succeeded", true
+        );
+        var noSchema = StreamAssets.plan(
+            located("Postgres", new DestinationLocation("analytics", null, false), "destination", null, stream("customers", "public", null)),
+            Map.of(descriptor("customers", "public"), rows(5)), 12L, "succeeded", true
+        );
+
+        assertThat(planned.getFirst().output().getId(), is("dst-1.public.customers"));
+        assertThat(noSchema.getFirst().output().getId(), is("dst-1.customers"));
+        assertThat(planned.getFirst().output().getMetadata().get("destinationId"), is("dst-1"));
+    }
+
+    @Test
+    void ids_are_sanitized_and_capped() {
+        assertThat(StreamAssets.sanitize("my project", "raw.data", "tab le"), is("my_project.raw_data.tab_le"));
+        assertThat(StreamAssets.sanitize("_db", "schema", "table"), is("db.schema.table"));
+
+        var capped = StreamAssets.sanitize("db", "schema", "t".repeat(200));
+        assertThat(capped.length(), is(150));
+        assertThat(capped, matchesPattern("db\\.schema\\.t+_[0-9a-f]{8}"));
+        assertThat(StreamAssets.sanitize("db", "schema", "t".repeat(200)), is(capped));
+    }
+
+    @Test
+    void destination_locations_are_read_per_connector() {
+        var config = Map.of("database", "analytics", "schema", "public", "project_id", "proj", "dataset_id", "ds", "password", "secret");
+
+        assertThat(DestinationLocations.parse("Postgres", config).orElseThrow(), is(new DestinationLocation("analytics", "public", false)));
+        assertThat(DestinationLocations.parse("Snowflake", config).orElseThrow(), is(new DestinationLocation("analytics", "public", false)));
+        assertThat(DestinationLocations.parse("MS SQL Server", config).orElseThrow(), is(new DestinationLocation("analytics", "public", false)));
+        assertThat(DestinationLocations.parse("bigquery", config).orElseThrow(), is(new DestinationLocation("proj", "ds", false)));
+        assertThat(DestinationLocations.parse("MySQL", config).orElseThrow(), is(new DestinationLocation("analytics", null, true)));
+        assertThat(DestinationLocations.parse("S3", config).isPresent(), is(false));
+        assertThat(DestinationLocations.parse("Postgres", null).isPresent(), is(false));
+        assertThat(DestinationLocations.parse("Postgres", "not a config").isPresent(), is(false));
+    }
+
+    @Test
+    void masked_location_values_are_ignored() {
+        assertThat(DestinationLocations.parse("Postgres", Map.of("database", "**********", "schema", "public")).isPresent(), is(false));
+        assertThat(DestinationLocations.parse("Postgres", Map.of("database", "analytics", "schema", "******")).orElseThrow().schema(), nullValue());
+    }
+
+    @Test
+    void snapshot_json_never_contains_the_location_or_config_keys() throws Exception {
+        var json = JacksonMapper.ofJson().writeValueAsString(
+            located("Postgres", new DestinationLocation("analytics", "public", false), "source", null, stream("customers", "public", null))
+        );
+
+        assertThat(json, not(containsString("destinationLocation")));
+        assertThat(json, not(containsString("analytics")));
+        assertThat(json, not(containsString("connectionConfiguration")));
+        assertThat(json, not(containsString("password")));
     }
 }

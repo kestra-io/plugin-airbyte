@@ -6,12 +6,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Supplier;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import io.kestra.core.models.assets.Asset;
 import io.kestra.core.models.assets.AssetIdentifier;
 import io.kestra.core.models.assets.Custom;
 import io.kestra.core.models.assets.External;
+import io.kestra.core.models.flows.State;
+import io.kestra.core.models.tasks.AssetFailureBehavior;
+import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.AssetEmit;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.models.Connection;
@@ -26,7 +33,10 @@ import io.kestra.plugin.airbyte.models.SyncMetadata;
 public final class StreamAssets {
     public static final String TABLE_ASSET_TYPE = "io.kestra.plugin.ee.assets.Table";
 
-    private static final String SOURCE_NAMESPACE_PLACEHOLDER = "${SOURCE_NAMESPACE}";
+    private static final int MAX_ID_LENGTH = 150;
+    private static final Pattern INVALID_ID_CHARS = Pattern.compile("[^a-zA-Z0-9_-]");
+    private static final Pattern LEADING_NON_ALPHANUMERIC = Pattern.compile("^[^a-zA-Z0-9]+");
+    public static final String SOURCE_NAMESPACE_PLACEHOLDER = "${SOURCE_NAMESPACE}";
 
     private StreamAssets() {
     }
@@ -62,8 +72,7 @@ public final class StreamAssets {
         Map<StreamDescriptor, Committed> committed,
         Long jobId,
         String jobStatus,
-        boolean jobSucceeded
-    ) {
+        boolean jobSucceeded) {
         var connection = snapshot.getConnection();
         if (connection.getDestinationId() == null || connection.getSyncCatalog() == null || connection.getSyncCatalog().getStreams() == null) {
             return List.of();
@@ -71,8 +80,10 @@ public final class StreamAssets {
 
         var planned = new ArrayList<Planned>();
         for (var connectionStream : connection.getSyncCatalog().getStreams()) {
-            if (connectionStream.getStream() == null || connectionStream.getStream().getName() == null
-                || connectionStream.getConfig() == null || !Boolean.TRUE.equals(connectionStream.getConfig().getSelected())) {
+            if (
+                connectionStream.getStream() == null || connectionStream.getStream().getName() == null
+                    || connectionStream.getConfig() == null || !Boolean.TRUE.equals(connectionStream.getConfig().getSelected())
+            ) {
                 continue;
             }
 
@@ -87,16 +98,77 @@ public final class StreamAssets {
         return planned;
     }
 
-    public static void emit(RunContext runContext, List<Planned> planned) {
+    /**
+     * Builds and emits the assets, applying {@code assets.assetFailureBehavior} since core never routes an exception thrown by
+     * {@code run()} through it. An unsupported emitter (OSS) is skipped silently.
+     *
+     * @return {@code WARNING} when an asset failed under {@code WARN}, so the task can end in that state
+     * @throws IllegalStateException when an asset failed under {@code FAIL}
+     */
+    public static Optional<State.Type> emit(RunContext runContext, Task task, String connectionId, Supplier<List<Planned>> planner) {
+        // Core skips asset processing entirely without a declaration, so do the same
+        if (task.getAssets() == null) {
+            return Optional.empty();
+        }
+        var failure = new Failure(runContext, task, connectionId);
+        List<Planned> planned;
+        try {
+            planned = planner.get();
+        } catch (Exception e) {
+            failure.record(null, e);
+            return failure.warned ? Optional.of(State.Type.WARNING) : Optional.empty();
+        }
+
         for (var asset : planned) {
             try {
                 runContext.assets().emit(new AssetEmit(List.of(asset.input()), List.<Asset> of(asset.output())));
                 runContext.logger().debug("Emitted asset '{}'", asset.output().getId());
             } catch (UnsupportedOperationException e) {
                 runContext.logger().debug("Asset emission is not supported in this edition, skipping");
-                return;
+                break;
             } catch (Exception e) {
-                runContext.logger().warn("Failed to emit asset '{}': {}", asset.output().getId(), e.getMessage());
+                failure.record(asset.output().getId(), e);
+            }
+        }
+        return failure.warned ? Optional.of(State.Type.WARNING) : Optional.empty();
+    }
+
+    private static final class Failure {
+        private final RunContext runContext;
+        private final Task task;
+        private final String connectionId;
+        private boolean warned;
+
+        private Failure(RunContext runContext, Task task, String connectionId) {
+            this.runContext = runContext;
+            this.task = task;
+            this.connectionId = connectionId;
+        }
+
+        void record(String assetId, Exception cause) {
+            var what = assetId == null ? "build the assets" : "emit asset '" + assetId + "'";
+            var message = "Failed to " + what + " for connection " + connectionId + ": " + cause.getMessage();
+            switch (behavior()) {
+                case FAIL -> throw new IllegalStateException(
+                    message + ". Set assets.assetFailureBehavior to WARN or IGNORE to not fail the task.", cause
+                );
+                case WARN -> {
+                    runContext.logger().warn(message);
+                    warned = true;
+                }
+                case IGNORE -> runContext.logger().debug(message);
+            }
+        }
+
+        // Core falls back to WARN when the property cannot be rendered
+        private AssetFailureBehavior behavior() {
+            try {
+                var declaration = task.getAssets();
+                return declaration == null || declaration.getAssetFailureBehavior() == null
+                    ? AssetFailureBehavior.WARN
+                    : runContext.render(declaration.getAssetFailureBehavior()).as(AssetFailureBehavior.class).orElse(AssetFailureBehavior.WARN);
+            } catch (Exception e) {
+                return AssetFailureBehavior.WARN;
             }
         }
     }
@@ -120,17 +192,66 @@ public final class StreamAssets {
 
     static String assetId(ConnectionSnapshot snapshot, ConnectionStream stream) {
         var connection = snapshot.getConnection();
-        return join(connection.getDestinationId(), namespace(connection, stream.getStream()), tableName(connection, stream));
+        var table = tableName(connection, stream);
+        var location = snapshot.getDestinationLocation();
+        var schema = schema(snapshot, stream);
+        if (location != null && (location.schemaless() || schema != null)) {
+            return sanitize(database(snapshot, stream), schema, table);
+        }
+        return sanitize(connection.getDestinationId(), namespace(connection, stream.getStream()), table);
+    }
+
+    // MySQL and ClickHouse have no schema level: the Airbyte namespace is the database
+    private static String database(ConnectionSnapshot snapshot, ConnectionStream stream) {
+        var location = snapshot.getDestinationLocation();
+        if (location == null) {
+            return null;
+        }
+        if (location.schemaless()) {
+            var namespace = namespace(snapshot.getConnection(), stream.getStream());
+            return namespace != null ? namespace : location.database();
+        }
+        return location.database();
+    }
+
+    private static String schema(ConnectionSnapshot snapshot, ConnectionStream stream) {
+        var location = snapshot.getDestinationLocation();
+        if (location == null || location.schemaless()) {
+            return null;
+        }
+        var namespace = namespace(snapshot.getConnection(), stream.getStream());
+        return namespace != null ? namespace : location.schema();
+    }
+
+    // Same rules as the Fivetran plugin so the same table gets the same id: allowed characters, alphanumeric start, 150 characters at most
+    static String sanitize(String... segments) {
+        var id = Stream.of(segments)
+            .filter(Objects::nonNull)
+            .map(segment -> INVALID_ID_CHARS.matcher(segment).replaceAll("_"))
+            .collect(Collectors.joining("."));
+        id = LEADING_NON_ALPHANUMERIC.matcher(id).replaceFirst("");
+        if (id.length() <= MAX_ID_LENGTH) {
+            return id;
+        }
+        return id.substring(0, MAX_ID_LENGTH - 9) + "_" + String.format("%08x", id.hashCode());
     }
 
     private static Custom table(ConnectionSnapshot snapshot, ConnectionStream stream, Committed counts, Long jobId, String jobStatus) {
         var connection = snapshot.getConnection();
         var config = stream.getConfig();
         var table = tableName(connection, stream);
+        var source = snapshot.getSource();
 
         var metadata = new LinkedHashMap<String, Object>();
         put(metadata, "system", snapshot.getDestination() == null ? null : snapshot.getDestination().getDestinationName());
         put(metadata, "destinationName", snapshot.getDestination() == null ? null : snapshot.getDestination().getName());
+        put(metadata, "destinationId", connection.getDestinationId());
+        put(metadata, "database", database(snapshot, stream));
+        put(metadata, "schema", schema(snapshot, stream));
+        put(metadata, "name", table);
+        put(metadata, "sourceId", connection.getSourceId());
+        put(metadata, "sourceName", source == null ? null : source.getName());
+        put(metadata, "sourceType", source == null ? null : source.getSourceName());
         put(metadata, "connectionId", connection.getConnectionId());
         put(metadata, "stream", stream.getStream().getName());
         put(metadata, "syncMode", config.getSyncMode());
@@ -153,7 +274,7 @@ public final class StreamAssets {
     }
 
     private static AssetIdentifier sourceIdentifier(Connection connection, StreamDescriptor stream) {
-        return new AssetIdentifier(null, null, join(connection.getSourceId(), blankToNull(stream.getNamespace()), stream.getName()), External.ASSET_TYPE);
+        return new AssetIdentifier(null, null, sanitize(connection.getSourceId(), blankToNull(stream.getNamespace()), stream.getName()), External.ASSET_TYPE);
     }
 
     private static String customNamespace(String format, String sourceNamespace) {
@@ -165,10 +286,6 @@ public final class StreamAssets {
         }
         var resolved = blankToNull(sourceNamespace);
         return resolved == null ? null : format.replace(SOURCE_NAMESPACE_PLACEHOLDER, resolved);
-    }
-
-    private static String join(String... segments) {
-        return String.join(".", Stream.of(segments).filter(Objects::nonNull).toList());
     }
 
     private static String blankToNull(String value) {
