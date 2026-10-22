@@ -1,12 +1,20 @@
 package io.kestra.plugin.airbyte.cloud;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Optional;
+import java.util.regex.Pattern;
+
+import javax.net.ssl.SSLSession;
 
 import org.apache.commons.io.IOUtils;
 
@@ -15,12 +23,14 @@ import com.airbyte.api.models.shared.SchemeBasicAuth;
 import com.airbyte.api.models.shared.SchemeClientCredentials;
 import com.airbyte.api.models.shared.Security;
 import com.airbyte.api.utils.SpeakeasyHTTPClient;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.models.tasks.retrys.Exponential;
 import io.kestra.core.runners.RunContext;
+import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.core.utils.RetryUtils;
 
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -85,7 +95,7 @@ public abstract class AbstractAirbyteCloud extends Task {
      * Single-attempt client for best-effort calls that must not wait behind the 5-minute retry loop of {@link CustomHttpClient}.
      */
     protected Airbyte snapshotClient(RunContext runContext) throws Exception {
-        return client(runContext, new SpeakeasyHTTPClient());
+        return client(runContext, new ConnectionCompatHttpClient());
     }
 
     private Airbyte client(RunContext runContext, SpeakeasyHTTPClient httpClient) throws Exception {
@@ -146,6 +156,69 @@ public abstract class AbstractAirbyteCloud extends Task {
                     );
             } catch (Exception e) {
                 throw new IOException(e);
+            }
+        }
+    }
+
+    /** com.airbyte:api 2.0.0 requires dataResidency, which Airbyte Cloud no longer returns: add a placeholder so the snapshot can be read. */
+    public static class ConnectionCompatHttpClient extends SpeakeasyHTTPClient {
+        private static final Pattern CONNECTION_PATH = Pattern.compile(".*/connections/[^/]+");
+
+        @Override
+        public HttpResponse<InputStream> send(HttpRequest request) throws IOException, InterruptedException, URISyntaxException {
+            var response = super.send(request);
+            if (!"GET".equals(request.method()) || response.statusCode() >= 300 || !CONNECTION_PATH.matcher(request.uri().getPath()).matches()) {
+                return response;
+            }
+
+            byte[] body;
+            try (var in = response.body()) {
+                body = in.readAllBytes();
+            }
+            try {
+                if (JacksonMapper.ofJson().readTree(body) instanceof ObjectNode connection && !connection.hasNonNull("dataResidency")) {
+                    body = JacksonMapper.ofJson().writeValueAsBytes(connection.put("dataResidency", "auto"));
+                }
+            } catch (IOException ignored) {
+                // not JSON: leave the body untouched for the SDK to report
+            }
+            return new BufferedResponse(response, new ByteArrayInputStream(body));
+        }
+
+        private record BufferedResponse(HttpResponse<InputStream> delegate, InputStream body) implements HttpResponse<InputStream> {
+            @Override
+            public int statusCode() {
+                return delegate.statusCode();
+            }
+
+            @Override
+            public HttpRequest request() {
+                return delegate.request();
+            }
+
+            @Override
+            public Optional<HttpResponse<InputStream>> previousResponse() {
+                return delegate.previousResponse();
+            }
+
+            @Override
+            public HttpHeaders headers() {
+                return delegate.headers();
+            }
+
+            @Override
+            public Optional<SSLSession> sslSession() {
+                return delegate.sslSession();
+            }
+
+            @Override
+            public URI uri() {
+                return delegate.uri();
+            }
+
+            @Override
+            public HttpClient.Version version() {
+                return delegate.version();
             }
         }
     }
