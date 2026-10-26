@@ -6,11 +6,11 @@ The topology card and the details dialog only read the task run's outputs and me
 
 The execution Artifacts tab (`execution-artifact/<id>` slots, Kestra 2.1+) adds views backed by the plugin endpoints, called through the optional `fetchEndpoint` prop on the sync's own task run:
 
-| Artifact | Endpoint | Tasks |
-|---|---|---|
-| `logs` | `logs` | `connections.Sync`, `connections.CheckStatus` |
+| Artifact   | Endpoint   | Tasks                                         |
+| ---------- | ---------- | --------------------------------------------- |
+| `logs`     | `logs`     | `connections.Sync`, `connections.CheckStatus` |
 | `attempts` | `attempts` | `connections.Sync`, `connections.CheckStatus` |
-| `streams` | `snapshot` | all four tasks |
+| `streams`  | `snapshot` | all four tasks                                |
 
 Airbyte Cloud has no attempts file and no Airbyte logs (the `logs` endpoint would only repeat the Kestra logs tab), so only `streams` is exposed there. On a host without `fetchEndpoint` the views show an upgrade message.
 

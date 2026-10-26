@@ -1,7 +1,6 @@
 import type { KnownSlotProps } from "@kestra-io/artifact-sdk";
 import { computed, ref, shallowRef, watch } from "vue";
-import { TERMINAL_STATES } from "./states";
-import { latestTaskRun } from "./useSyncData";
+import { useTaskRun } from "./useSyncData";
 
 type SlotProps = KnownSlotProps["execution-artifact"];
 
@@ -40,10 +39,7 @@ export function useEndpoint<T>(
 
     const supported = computed(() => typeof props.fetchEndpoint === "function");
     const hasExecution = computed(() => !!props.execution?.id);
-    const taskRun = computed(() => latestTaskRun(props.execution, props.task?.id));
-    const taskRunId = computed(() => taskRun.value?.id as string | undefined);
-    const taskRunState = computed(() => taskRun.value?.state?.current as string | undefined);
-    const isTerminal = computed(() => TERMINAL_STATES.includes(taskRunState.value ?? ""));
+    const { taskRunId, taskRunState } = useTaskRun(props);
 
     async function load() {
         // Drop a response that resolves after a newer request, e.g. after a quick filter change.
@@ -64,7 +60,7 @@ export function useEndpoint<T>(
 
     // Files such as the attempts only exist once the task run ends: reload then, and whenever a filter changes.
     watch(
-        [taskRunId, isTerminal, () => JSON.stringify(toQuery(params()))],
+        [taskRunId, taskRunState, () => JSON.stringify(toQuery(params()))],
         () => {
             if (supported.value && taskRunId.value) load();
         },

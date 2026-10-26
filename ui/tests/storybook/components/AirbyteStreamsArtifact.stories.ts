@@ -71,7 +71,7 @@ export const Cloud: Story = {
 };
 
 export const NoMatch: Story = {
-    name: "No stream matches",
+    name: "No streams without a filter",
     args: {
         task,
         ...flow,
@@ -79,6 +79,6 @@ export const NoMatch: Story = {
     } as any,
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement);
-        await waitFor(() => expect(canvas.getByText("No stream matches.")).toBeInTheDocument());
+        await waitFor(() => expect(canvas.getByText("No streams.")).toBeInTheDocument());
     },
 };

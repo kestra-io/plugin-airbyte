@@ -1,5 +1,5 @@
 import type { KnownSlotProps } from "@kestra-io/artifact-sdk";
-import { computed, ref, watch } from "vue";
+import { computed, onScopeDispose, ref, watch } from "vue";
 import { TERMINAL_STATES } from "./states";
 
 // The Artifacts slot has the same props minus `progress`, which is unused here, so both slots fit.
@@ -35,38 +35,69 @@ export function latestTaskRun(execution: unknown, taskId: unknown) {
     return list?.filter((run: any) => run.taskId === taskId).at(-1);
 }
 
+const POLL_MS = 2000;
+
+// The sync's task run, kept fresh while it has not ended. A host can update the execution in place, or from
+// its own Vue runtime, without our computeds noticing: while the run is not terminal, a timer re-reads the
+// props and bumps `tick`, so the state change still reaches every watcher.
+export function useTaskRun(props: SlotProps) {
+    const tick = ref(0);
+    const read = () => {
+        void tick.value;
+        return latestTaskRun(props.execution, props.task?.id);
+    };
+    // Each one re-reads the task run itself: a computed that returned the same (mutated) object would be cached.
+    const taskRun = computed(read);
+    const taskRunId = computed(() => read()?.id as string | undefined);
+    const taskRunState = computed(() => read()?.state?.current as string | undefined);
+    const isTerminal = computed(() => TERMINAL_STATES.includes(taskRunState.value ?? ""));
+
+    const timer = setInterval(() => {
+        if (isTerminal.value) return;
+        tick.value++;
+    }, POLL_MS);
+    onScopeDispose(() => clearInterval(timer));
+
+    return { taskRun, taskRunId, taskRunState, isTerminal };
+}
+
 // Reads this task run's outputs through the host-provided lazy fetchers. Every field is optional:
 // executions that ran before an output existed, and Airbyte Cloud (no per-stream data), simply lack it.
 export function useSyncData(props: SlotProps) {
-    const taskId = computed(() => props.task?.id as string | undefined);
     const hasExecution = computed(() => !!props.execution?.id);
     const executionId = computed(() => props.execution?.id as string | undefined);
 
-    const taskRun = computed(() => latestTaskRun(props.execution, taskId.value));
+    const { taskRun, taskRunId, taskRunState, isTerminal } = useTaskRun(props);
 
     const outputs = ref<Record<string, any> | null>(null);
     const metrics = ref<{ name: string; value: number }[]>([]);
 
+    // The reload at the end of the run can overlap the first load: only the latest request may write.
+    let requestId = 0;
     async function load() {
+        const current = ++requestId;
+        const taskRunId = taskRun.value?.id;
         try {
-            outputs.value = (await props.fetchOutputs?.({ taskRunId: taskRun.value?.id })) ?? null;
+            const response = (await props.fetchOutputs?.({ taskRunId })) ?? null;
+            // An empty answer (a run that has not written its outputs yet) must not hide the task run's own.
+            if (current === requestId)
+                outputs.value = response && Object.keys(response).length > 0 ? response : null;
         } catch {
             /* best-effort */
         }
         try {
-            const response = await props.fetchMetrics?.({ taskRunId: taskRun.value?.id });
-            metrics.value = (response?.results as { name: string; value: number }[]) ?? [];
+            const response = await props.fetchMetrics?.({ taskRunId });
+            if (current === requestId)
+                metrics.value = (response?.results as { name: string; value: number }[]) ?? [];
         } catch {
             /* best-effort */
         }
     }
 
     // A card opened while the sync is still running has no outputs yet: reload once the task run ends.
-    const taskRunState = computed(() => taskRun.value?.state?.current as string | undefined);
-    const isTerminal = computed(() => TERMINAL_STATES.includes(taskRunState.value ?? ""));
 
     watch(
-        [executionId, isTerminal],
+        [executionId, taskRunId, isTerminal],
         ([id]) => {
             if (id) load();
         },

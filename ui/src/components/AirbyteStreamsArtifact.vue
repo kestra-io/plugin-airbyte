@@ -51,7 +51,8 @@ const { t } = useI18n({
             notSelected: "Not selected",
             showAll: "Show all {count}",
             showLess: "Show top {count}",
-            empty: "No stream matches.",
+            noMatch: "No stream matches.",
+            empty: "No streams.",
         },
     },
 });
@@ -104,7 +105,9 @@ const visibleRows = computed(() => (showAll.value ? rows.value : rows.value.slic
             />
         </div>
 
-        <p v-if="!rows.length" class="airbyte-artifact__note">{{ t("empty") }}</p>
+        <p v-if="!rows.length" class="airbyte-artifact__note">
+            {{ name ? t("noMatch") : t("empty") }}
+        </p>
         <div v-else class="airbyte-artifact__scroll">
             <table class="airbyte-artifact__table">
                 <thead>

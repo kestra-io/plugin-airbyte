@@ -302,6 +302,27 @@ export const snapshotStreams = {
     ],
 };
 
+// What the host passes once the run is over: the task run carries its final state.
+export const finishedExecution = {
+    ...execution,
+    taskRunList: [
+        {
+            id: "tr-001",
+            taskId: "sync",
+            executionId: "exec-abc123",
+            state: { current: "SUCCESS" },
+        },
+        // Per-attempt sub task runs have their own task ID and no outputs.
+        {
+            id: "tr-002",
+            taskId: "attempt-0",
+            parentTaskRunId: "tr-001",
+            executionId: "exec-abc123",
+            state: { current: "SUCCESS" },
+        },
+    ],
+} as any;
+
 export const runningExecution = {
     ...execution,
     state: { current: "RUNNING", startDate: "2024-01-15T10:00:00Z" } as any,

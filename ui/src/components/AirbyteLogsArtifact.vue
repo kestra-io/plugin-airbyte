@@ -86,6 +86,9 @@ const resetPage = () => {
     page.value = 1;
 };
 
+// Airbyte messages often start with a line break that would render as an empty first line.
+const trimMessage = (message?: string) => message?.replace(/^\s*\n/, "");
+
 const levelType = (value?: string) =>
     value === "ERROR" ? "danger" : value === "WARN" ? "warning" : "info";
 </script>
@@ -111,6 +114,7 @@ const levelType = (value?: string) =>
                 size="small"
                 class="airbyte-logs__sources"
                 :placeholder="t('sources')"
+                :aria-label="t('sources')"
                 @change="resetPage"
             >
                 <KsOption
@@ -167,7 +171,7 @@ const levelType = (value?: string) =>
                                 line.level
                             }}</KsTag>
                         </td>
-                        <td class="airbyte-artifact__muted">
+                        <td class="airbyte-artifact__muted airbyte-logs__source">
                             <template v-if="!isKestra">
                                 <span v-if="line.attempt !== undefined"
                                     >#{{ line.attempt + 1 }}</span
@@ -175,7 +179,7 @@ const levelType = (value?: string) =>
                                 {{ line.source }}
                             </template>
                         </td>
-                        <td class="airbyte-logs__message">{{ line.message }}</td>
+                        <td class="airbyte-logs__message">{{ trimMessage(line.message) }}</td>
                     </tr>
                 </tbody>
             </table>
@@ -209,6 +213,10 @@ const levelType = (value?: string) =>
 
 .airbyte-logs__search {
     width: 220px;
+}
+
+.airbyte-logs__source {
+    white-space: nowrap;
 }
 
 .airbyte-logs__time {
