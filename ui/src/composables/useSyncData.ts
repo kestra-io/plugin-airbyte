@@ -36,6 +36,23 @@ export function latestTaskRun(execution: unknown, taskId: unknown) {
 }
 
 const POLL_MS = 2000;
+// Pauses before asking again when a finished run answers with something that is not its outputs.
+const RETRY_MS = [300, 700];
+
+export type LoadState = "idle" | "loading" | "loaded" | "unsupported" | "unusable" | "error";
+
+const OUTPUT_KEYS = ["job", "metadata", "connection", "jobId", "jobUrl", "alreadyRunning"];
+
+// A task run's outputs are an object keyed by output name. The host also serves, one level up, the list of
+// task runs that have outputs (`[{ taskId, taskRunId, inline }]`): that must never be read as outputs.
+export function isSyncOutputs(value: unknown): value is Record<string, any> {
+    return (
+        !!value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        OUTPUT_KEYS.some((key) => key in value)
+    );
+}
 
 // The sync's task run, kept fresh while it has not ended. A host can update the execution in place, or from
 // its own Vue runtime, without our computeds noticing: while the run is not terminal, a timer re-reads the
@@ -72,21 +89,48 @@ export function useSyncData(props: SlotProps) {
     const outputs = ref<Record<string, any> | null>(null);
     const metrics = ref<{ name: string; value: number }[]>([]);
 
+    // Why there are no outputs: the host has no fetchOutputs, it answered with something that is not this task
+    // run's outputs (the execution-level list of task runs, an empty object), or the call failed.
+    const loadState = ref<LoadState>("idle");
+
     // The reload at the end of the run can overlap the first load: only the latest request may write.
     let requestId = 0;
-    async function load() {
+    async function load(attempt = 0) {
         const current = ++requestId;
-        const taskRunId = taskRun.value?.id;
+        const runId = taskRun.value?.id;
+        // Without a task run the host would have to guess which one to read: wait until the execution has it.
+        if (!runId) return;
+        if (typeof props.fetchOutputs !== "function") {
+            loadState.value = "unsupported";
+            return;
+        }
+
+        loadState.value = "loading";
         try {
-            const response = (await props.fetchOutputs?.({ taskRunId })) ?? null;
-            // An empty answer (a run that has not written its outputs yet) must not hide the task run's own.
-            if (current === requestId)
-                outputs.value = response && Object.keys(response).length > 0 ? response : null;
-        } catch {
-            /* best-effort */
+            const response = await props.fetchOutputs({ taskRunId: runId });
+            if (current !== requestId) return;
+            if (isSyncOutputs(response)) {
+                outputs.value = response;
+                loadState.value = "loaded";
+            } else if (isTerminal.value && attempt < RETRY_MS.length) {
+                setTimeout(() => current === requestId && load(attempt + 1), RETRY_MS[attempt]);
+                return;
+            } else if (!isTerminal.value) {
+                // A running sync has no outputs yet: this is the normal answer, reloaded when it ends.
+                loadState.value = "idle";
+            } else {
+                loadState.value = "unusable";
+                console.warn("[plugin-airbyte] Unusable task run outputs", {
+                    taskRunId: runId,
+                    response,
+                });
+            }
+        } catch (error) {
+            if (current === requestId) loadState.value = "error";
+            console.warn("[plugin-airbyte] Could not load the task run outputs", error);
         }
         try {
-            const response = await props.fetchMetrics?.({ taskRunId });
+            const response = await props.fetchMetrics?.({ taskRunId: runId });
             if (current === requestId)
                 metrics.value = (response?.results as { name: string; value: number }[]) ?? [];
         } catch {
@@ -140,6 +184,7 @@ export function useSyncData(props: SlotProps) {
     return {
         taskRunState,
         isTerminal,
+        loadState,
         hasExecution,
         taskOutputs,
         metrics,

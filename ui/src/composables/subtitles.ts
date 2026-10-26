@@ -12,7 +12,13 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 async function outputsOf({ task, execution, fetchOutputs }: ArtifactContext) {
     try {
         const taskRunId = latestTaskRun(execution, task?.id)?.id;
-        return (await fetchOutputs?.({ taskRunId })) ?? undefined;
+        // No task run yet: without an ID the host has to guess one, so don't ask.
+        if (!taskRunId) return undefined;
+        const outputs = await fetchOutputs?.({ taskRunId });
+        // Anything but an outputs object (e.g. the host's list of task runs) says nothing about the sync.
+        return outputs && typeof outputs === "object" && !Array.isArray(outputs)
+            ? outputs
+            : undefined;
     } catch {
         return undefined;
     }
