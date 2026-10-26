@@ -39,7 +39,7 @@ export function useEndpoint<T>(
 
     const supported = computed(() => typeof props.fetchEndpoint === "function");
     const hasExecution = computed(() => !!props.execution?.id);
-    const { taskRunId, taskRunState } = useTaskRun(props);
+    const { taskRunId, taskRunState, isTerminal } = useTaskRun(props);
 
     async function load() {
         // Drop a response that resolves after a newer request, e.g. after a quick filter change.
@@ -60,7 +60,7 @@ export function useEndpoint<T>(
 
     // Files such as the attempts only exist once the task run ends: reload then, and whenever a filter changes.
     watch(
-        [taskRunId, taskRunState, () => JSON.stringify(toQuery(params()))],
+        [taskRunId, taskRunState, isTerminal, () => JSON.stringify(toQuery(params()))],
         () => {
             if (supported.value && taskRunId.value) load();
         },

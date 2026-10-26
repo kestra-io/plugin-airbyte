@@ -36,6 +36,10 @@ export function latestTaskRun(execution: unknown, taskId: unknown) {
 }
 
 const POLL_MS = 2000;
+// The host hands the plugin a snapshot of the execution taken when the view mounted, so a view opened on a
+// running sync never sees it end. Its outputs only exist once the task finishes: ask for them until they do.
+const DETECT_MS = 4000;
+const DETECT_MAX_MS = 15 * 60 * 1000;
 // Pauses before asking again when a finished run answers with something that is not its outputs.
 const RETRY_MS = [300, 700];
 
@@ -67,13 +71,41 @@ export function useTaskRun(props: SlotProps) {
     const taskRun = computed(read);
     const taskRunId = computed(() => read()?.id as string | undefined);
     const taskRunState = computed(() => read()?.state?.current as string | undefined);
-    const isTerminal = computed(() => TERMINAL_STATES.includes(taskRunState.value ?? ""));
+    // Set when the outputs show up although the (possibly frozen) props still say the run is going.
+    const finished = ref(false);
+    const isTerminal = computed(
+        () => finished.value || TERMINAL_STATES.includes(taskRunState.value ?? ""),
+    );
 
     const timer = setInterval(() => {
         if (isTerminal.value) return;
         tick.value++;
     }, POLL_MS);
-    onScopeDispose(() => clearInterval(timer));
+
+    const startedAt = Date.now();
+    let asking = false;
+    const detector = setInterval(async () => {
+        if (isTerminal.value || Date.now() - startedAt > DETECT_MAX_MS) {
+            clearInterval(detector);
+            return;
+        }
+        const runId = read()?.id as string | undefined;
+        if (asking || !runId || typeof props.fetchOutputs !== "function") return;
+        asking = true;
+        try {
+            if (isSyncOutputs(await props.fetchOutputs({ taskRunId: runId })))
+                finished.value = true;
+        } catch {
+            /* best-effort: try again on the next tick */
+        } finally {
+            asking = false;
+        }
+    }, DETECT_MS);
+
+    onScopeDispose(() => {
+        clearInterval(timer);
+        clearInterval(detector);
+    });
 
     return { taskRun, taskRunId, taskRunState, isTerminal };
 }
