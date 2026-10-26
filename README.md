@@ -48,6 +48,22 @@
 - Provides plugin components under `io.kestra.plugin.airbyte`.
 - Includes classes such as `JobStatus`, `AttemptFailureSummary`, `AttemptFailureReason`, `AttemptStatus`.
 
+## Reset streams on self-hosted Airbyte
+
+`io.kestra.plugin.airbyte.connections.Reset` resets selected streams of a connection through Airbyte's `/api/v1/connections/reset/stream` config API. Set `connectionId` and at least one entry in `streams`, each with a `streamName` and an optional `streamNamespace`. It uses the same `url` and authentication properties as `Sync`.
+
+```yaml
+- id: reset
+  type: io.kestra.plugin.airbyte.connections.Reset
+  url: http://localhost:8000
+  connectionId: e3b1ce92-547c-436f-b1e8-23b6936c12cd
+  streams:
+    - streamName: customers
+      streamNamespace: public
+```
+
+**A reset deletes the data the selected streams generated in the destination and resets their cursors**, so the next sync replicates them from scratch. The task returns the reset `jobId` without waiting; pass it to `CheckStatus` to wait for the job.
+
 ## Self-hosted job outputs
 
 When `wait` is enabled, `io.kestra.plugin.airbyte.connections.Sync` and `CheckStatus` expose:
