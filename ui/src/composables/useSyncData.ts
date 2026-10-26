@@ -1,5 +1,5 @@
 import type { KnownSlotProps } from "@kestra-io/artifact-sdk";
-import { computed, onScopeDispose, ref, watch } from "vue";
+import { computed, onScopeDispose, ref, watch, type ComputedRef } from "vue";
 import { TERMINAL_STATES } from "./states";
 
 // The Artifacts slot has the same props minus `progress`, which is unused here, so both slots fit.
@@ -39,6 +39,11 @@ const POLL_MS = 2000;
 // The host hands the plugin a snapshot of the execution taken when the view mounted, so a view opened on a
 // running sync never sees it end. Its outputs only exist once the task finishes: ask for them until they do.
 const DETECT_MS = 4000;
+// A long or orphaned run costs little: the interval grows by this factor, up to the maximum delay.
+const DETECT_GROWTH = 1.5;
+const DETECT_MAX_DELAY_MS = 30_000;
+// Hard cap, so a task that ended without outputs stops being polled. Long syncs exist (a verified one ran
+// close to 12 minutes), so 15 minutes covers them while the growing interval keeps the cost to ~35 calls.
 const DETECT_MAX_MS = 15 * 60 * 1000;
 // Pauses before asking again when a finished run answers with something that is not its outputs.
 const RETRY_MS = [300, 700];
@@ -58,10 +63,19 @@ export function isSyncOutputs(value: unknown): value is Record<string, any> {
     );
 }
 
-// The sync's task run, kept fresh while it has not ended. A host can update the execution in place, or from
-// its own Vue runtime, without our computeds noticing: while the run is not terminal, a timer re-reads the
-// props and bumps `tick`, so the state change still reaches every watcher.
-export function useTaskRun(props: SlotProps) {
+// A task run's state and completion, shared by every composable called with the same props: a view that
+// reads both the outputs and an endpoint still runs a single poller. Ref-counted, stopped with the last user.
+interface SharedTaskRun {
+    refs: number;
+    taskRun: ComputedRef<any>;
+    taskRunId: ComputedRef<string | undefined>;
+    taskRunState: ComputedRef<string | undefined>;
+    isTerminal: ComputedRef<boolean>;
+    stop: () => void;
+}
+const sharedTaskRuns = new WeakMap<object, SharedTaskRun>();
+
+function createTaskRun(props: SlotProps): SharedTaskRun {
     const tick = ref(0);
     const read = () => {
         void tick.value;
@@ -77,20 +91,30 @@ export function useTaskRun(props: SlotProps) {
         () => finished.value || TERMINAL_STATES.includes(taskRunState.value ?? ""),
     );
 
+    const startedAt = Date.now();
+    const expired = () => Date.now() - startedAt > DETECT_MAX_MS;
+    let stopped = false;
+    let asking = false;
+    let delay = DETECT_MS;
+    let detector: ReturnType<typeof setTimeout> | undefined;
+
     const timer = setInterval(() => {
-        if (isTerminal.value) return;
+        if (isTerminal.value || expired()) return;
         tick.value++;
     }, POLL_MS);
 
-    const startedAt = Date.now();
-    let asking = false;
-    const detector = setInterval(async () => {
-        if (isTerminal.value || Date.now() - startedAt > DETECT_MAX_MS) {
-            clearInterval(detector);
-            return;
-        }
+    // Limitation: a task that ends without outputs (killed, failed early, maxDuration) is only left alone by the
+    // cap. The host gives views no cheap "ended" signal: its metrics and the plugin endpoints answer the same
+    // for a run that is over and one that is going.
+    const schedule = () => {
+        if (stopped || isTerminal.value || expired()) return;
+        detector = setTimeout(detect, delay);
+    };
+    async function detect() {
         const runId = read()?.id as string | undefined;
-        if (asking || !runId || typeof props.fetchOutputs !== "function") return;
+        // Nothing is asked of a hidden tab: visibilitychange resumes the polling.
+        if (document.visibilityState === "hidden") return;
+        if (asking || !runId || typeof props.fetchOutputs !== "function") return schedule();
         asking = true;
         try {
             if (isSyncOutputs(await props.fetchOutputs({ taskRunId: runId })))
@@ -100,13 +124,50 @@ export function useTaskRun(props: SlotProps) {
         } finally {
             asking = false;
         }
-    }, DETECT_MS);
+        delay = Math.min(delay * DETECT_GROWTH, DETECT_MAX_DELAY_MS);
+        schedule();
+    }
+    const resume = () => {
+        if (document.visibilityState === "hidden" || stopped || asking) return;
+        clearTimeout(detector);
+        void detect();
+    };
+    document.addEventListener("visibilitychange", resume);
+    schedule();
 
+    return {
+        refs: 0,
+        taskRun,
+        taskRunId,
+        taskRunState,
+        isTerminal,
+        stop() {
+            stopped = true;
+            clearInterval(timer);
+            clearTimeout(detector);
+            document.removeEventListener("visibilitychange", resume);
+        },
+    };
+}
+
+// The sync's task run, kept fresh while it has not ended. A host can update the execution in place, from its
+// own Vue runtime, or never (views get a snapshot taken at mount): while the run is not terminal, a timer
+// re-reads the props, and a slow, backing-off poll of fetchOutputs spots the end of the run.
+export function useTaskRun(props: SlotProps) {
+    let shared = sharedTaskRuns.get(props);
+    if (!shared) {
+        shared = createTaskRun(props);
+        sharedTaskRuns.set(props, shared);
+    }
+    const current = shared;
+    current.refs++;
     onScopeDispose(() => {
-        clearInterval(timer);
-        clearInterval(detector);
+        if (--current.refs > 0) return;
+        current.stop();
+        sharedTaskRuns.delete(props);
     });
 
+    const { taskRun, taskRunId, taskRunState, isTerminal } = current;
     return { taskRun, taskRunId, taskRunState, isTerminal };
 }
 
