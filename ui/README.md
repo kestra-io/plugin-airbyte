@@ -2,7 +2,17 @@
 
 Vue 3 + Vite micro-frontend for the `io.kestra.plugin.airbyte` plugin. It adds a topology card and a details dialog to `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset`. Kestra 2.0+ shows them; Kestra 1.3.x ignores them.
 
-The components only read the task run's outputs and metrics through the `fetchOutputs` and `fetchMetrics` props. They make no HTTP call, and file outputs (`attempts`, `connectionSnapshot`) are not displayed because only their URIs are available.
+The topology card and the details dialog only read the task run's outputs and metrics through the `fetchOutputs` and `fetchMetrics` props. They make no HTTP call.
+
+The execution Artifacts tab (`execution-artifact/<id>` slots, Kestra 2.1+) adds views backed by the plugin endpoints, called through the optional `fetchEndpoint` prop on the sync's own task run:
+
+| Artifact | Endpoint | Tasks |
+|---|---|---|
+| `logs` | `logs` | `connections.Sync`, `connections.CheckStatus` |
+| `attempts` | `attempts` | `connections.Sync`, `connections.CheckStatus` |
+| `streams` | `snapshot` | all four tasks |
+
+Airbyte Cloud has no attempts file and no Airbyte logs (the `logs` endpoint would only repeat the Kestra logs tab), so only `streams` is exposed there. On a host without `fetchEndpoint` the views show an upgrade message.
 
 ## Development
 

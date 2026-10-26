@@ -21,6 +21,16 @@ describe("vite.config.ts exposes", () => {
         expect(config.match(/slotName: "topology-details"/g)).toHaveLength(1);
     });
 
+    test("self-hosted tasks get logs, attempts and streams; Cloud tasks only streams", () => {
+        expect(config).toContain('const SELF_HOSTED = ["logs", "attempts", "streams"]');
+        expect(config.match(/artifacts: SELF_HOSTED/g)).toHaveLength(2);
+        expect(config.match(/artifacts: \["streams"\]/g)).toHaveLength(2);
+        expect(config).toContain("slotName: `execution-artifact/${id}`");
+        for (const component of ["Logs", "Attempts", "Streams"]) {
+            expect(config).toContain(`./src/components/Airbyte${component}Artifact.vue`);
+        }
+    });
+
     test("no taskProp and no drawer slot", () => {
         expect(config).not.toContain("taskProp");
         expect(config).not.toContain("topology-task-drawer");

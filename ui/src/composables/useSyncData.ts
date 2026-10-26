@@ -2,7 +2,8 @@ import type { KnownSlotProps } from "@kestra-io/artifact-sdk";
 import { computed, ref, watch } from "vue";
 import { TERMINAL_STATES } from "./states";
 
-type SlotProps = KnownSlotProps["topology-details"];
+// The Artifacts slot has the same props minus `progress`, which is unused here, so both slots fit.
+type SlotProps = KnownSlotProps["execution-artifact"];
 
 export interface StreamRow {
     name: string;
@@ -28,6 +29,12 @@ export interface Failure {
     stream?: string;
 }
 
+// The sync's own task run: `attempt-N` sub task runs carry a different taskId and have no outputs.
+export function latestTaskRun(execution: unknown, taskId: unknown) {
+    const list = (execution as { taskRunList?: any[] } | undefined)?.taskRunList;
+    return list?.filter((run: any) => run.taskId === taskId).at(-1);
+}
+
 // Reads this task run's outputs through the host-provided lazy fetchers. Every field is optional:
 // executions that ran before an output existed, and Airbyte Cloud (no per-stream data), simply lack it.
 export function useSyncData(props: SlotProps) {
@@ -35,10 +42,7 @@ export function useSyncData(props: SlotProps) {
     const hasExecution = computed(() => !!props.execution?.id);
     const executionId = computed(() => props.execution?.id as string | undefined);
 
-    const taskRun = computed(() => {
-        const list = props.execution?.taskRunList as any[] | undefined;
-        return list?.filter((run: any) => run.taskId === taskId.value).at(-1);
-    });
+    const taskRun = computed(() => latestTaskRun(props.execution, taskId.value));
 
     const outputs = ref<Record<string, any> | null>(null);
     const metrics = ref<{ name: string; value: number }[]>([]);
