@@ -15,7 +15,7 @@ import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.Destination;
-import io.kestra.plugin.airbyte.models.DestinationLocation;
+import io.kestra.plugin.airbyte.models.ConnectorLocation;
 import io.kestra.plugin.airbyte.models.Source;
 
 /**
@@ -53,16 +53,16 @@ public final class ConnectionSnapshots {
         }
     }
 
-    private static DestinationLocation location(RunContext runContext, Destination destination, Map<?, ?> destinationResponse) {
-        var location = DestinationLocations.parse(destination.getDestinationName(), destinationResponse.get("connectionConfiguration"));
+    private static ConnectorLocation location(RunContext runContext, Destination destination, Map<?, ?> destinationResponse) {
+        var location = ConnectorLocations.parse(destination.getDestinationName(), destinationResponse.get("connectionConfiguration"));
         if (location.isEmpty()) {
             runContext.logger().debug("No destination location resolved for destination {}, asset ids fall back to the Airbyte destination ID", destination.getDestinationId());
         }
         return location.orElse(null);
     }
 
-    private static DestinationLocation sourceLocation(RunContext runContext, Source source, Map<?, ?> sourceResponse) {
-        var location = DestinationLocations.parse(source.getSourceName(), sourceResponse.get("connectionConfiguration"));
+    private static ConnectorLocation sourceLocation(RunContext runContext, Source source, Map<?, ?> sourceResponse) {
+        var location = ConnectorLocations.parseSource(source.getSourceName(), sourceResponse.get("connectionConfiguration"));
         if (location.isEmpty()) {
             runContext.logger().debug("No source location resolved for source {}, asset inputs fall back to the Airbyte source ID", source.getSourceId());
         }

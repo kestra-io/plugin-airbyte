@@ -58,7 +58,7 @@ import lombok.experimental.SuperBuilder;
 
         When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records.
 
-        The task also exposes the `connection` that ran the job, a `connectionSnapshot` file (connector configurations are never included) and a `jobUrl` to the job logs in the Airbyte web app. When Kestra runs with assets enabled (Enterprise Edition), each replicated stream that committed records is emitted as a table asset with the source stream as its input (also with 0 records when the job SUCCEEDED, with `recordsCommitted: 0`). Assets are emitted only when the task ends in SUCCESS or WARNING, because Kestra drops the assets of a failed task run, and their counts are the same per-stream figures as `metadata`, so a job that ended in WARNING emits no asset. The asset id is `<database>.<schema>.<table>` read from the destination configuration, falling back to `<destinationId>.<namespace>.<table>`. The input of a database source is the source table, a `Table` asset with id `<database>.<schema>.<table>` read from the source configuration, so it matches the JDBC, dbt and Fivetran ids; API sources and unresolved locations keep an `External` input `<sourceId>.<namespace>.<stream>`. If an asset fails, `assets.assetFailureBehavior` applies: `FAIL` fails the task, `WARN` (the default) ends it in WARNING, `IGNORE` only logs at debug level
+        The task also exposes the `connection` that ran the job, a `connectionSnapshot` file (connector configurations are never included) and a `jobUrl` to the job logs in the Airbyte web app. When Kestra runs with assets enabled (Enterprise Edition), each replicated stream that committed records is emitted as a table asset with the source stream as its input (also with 0 records, `recordsCommitted: 0`, when the job SUCCEEDED and reports the stream in its per-stream stats, or reports no per-stream stats). Assets are emitted only when the task ends in SUCCESS or WARNING, because Kestra drops the assets of a failed task run, and their counts are the same per-stream figures as `metadata`, so a job that ended in WARNING emits no asset. The asset id is `<database>.<schema>.<table>` read from the destination configuration, falling back to `<destinationId>.<namespace>.<table>`. The input of a database source is the source table, a `Table` asset with id `<database>.<schema>.<table>` read from the source configuration, so it matches the JDBC, dbt and Fivetran ids; API sources and unresolved locations keep an `External` input `<sourceId>.<namespace>.<stream>`. If an asset fails, `assets.assetFailureBehavior` applies: `FAIL` fails the task, `WARN` (the default) ends it in WARNING, `IGNORE` only logs at debug level
         """
 )
 @Plugin(
@@ -477,13 +477,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .addHeader("Accept-Encoding", "identity")
             .body(
                 HttpRequest.JsonRequestBody.builder()
-                    .content(
-                        Map.of(
-                            "configTypes", List.of("sync"),
-                            "configId", connectionId,
-                            "pagination", Map.of("pageSize", 5, "rowOffset", 0)
-                        )
-                    )
+                    .content(Map.of(
+                        "configTypes", List.of("sync"),
+                        "configId", connectionId,
+                        "pagination", Map.of("pageSize", 5, "rowOffset", 0)
+                    ))
                     .build()
             );
 
@@ -493,13 +491,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .map(JobList::getJobs)
             .orElseGet(List::of)
             .stream()
-            .filter(
-                jobInfo -> jobInfo.getJob() != null
-                    // Defense-in-depth: the request above already restricts to "sync" via `configTypes`, but a server
-                    // that ignores/mis-applies that filter must not be able to get a reset/clear job silently adopted.
-                    && jobInfo.getJob().getConfigType() == JobConfigType.SYNC
-                    && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus())
-            )
+            .filter(jobInfo -> jobInfo.getJob() != null
+                // Defense-in-depth: the request above already restricts to "sync" via `configTypes`, but a server
+                // that ignores/mis-applies that filter must not be able to get a reset/clear job silently adopted.
+                && jobInfo.getJob().getConfigType() == JobConfigType.SYNC
+                && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus()))
             .map(jobInfo -> jobInfo.getJob().getId())
             .max(Comparator.naturalOrder());
     }

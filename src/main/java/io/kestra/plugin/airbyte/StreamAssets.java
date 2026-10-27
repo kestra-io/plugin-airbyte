@@ -24,7 +24,7 @@ import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionStream;
-import io.kestra.plugin.airbyte.models.DestinationLocation;
+import io.kestra.plugin.airbyte.models.ConnectorLocation;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
 import io.kestra.plugin.airbyte.models.SyncMetadata;
 
@@ -54,12 +54,26 @@ public final class StreamAssets {
         if (metadata != null && metadata.getDestination() != null) {
             metadata.getDestination().forEach(
                 table -> committed.put(
-                    StreamDescriptor.builder().name(table.getName()).namespace(table.getNamespace()).build(),
+                    StreamDescriptor.builder().name(table.getName()).namespace(blankToNull(table.getNamespace())).build(),
                     new Committed(table.getRows(), table.getBytes())
                 )
             );
         }
         return committed;
+    }
+
+    /**
+     * Airbyte OSS reports the per-stream stats of a database source without {@code streamNamespace}, while the catalog stream carries one.
+     * An exact (name, namespace) match always wins; otherwise the stats of the same name without a namespace are used, but only when that
+     * name is unique among the selected catalog streams. With the same name in several namespaces the stats cannot be attributed, so the
+     * stream is skipped rather than guessed.
+     */
+    private static Committed counts(Map<StreamDescriptor, Committed> committed, StreamDescriptor stream, boolean uniqueName) {
+        var exact = committed.get(stream);
+        if (exact != null || !uniqueName) {
+            return exact;
+        }
+        return committed.get(StreamDescriptor.builder().name(stream.getName()).namespace(null).build());
     }
 
     public record Planned(AssetIdentifier input, Custom output) {
@@ -80,6 +94,17 @@ public final class StreamAssets {
             return List.of();
         }
 
+        var selected = new ArrayList<ConnectionStream>();
+        for (var connectionStream : connection.getSyncCatalog().getStreams()) {
+            if (
+                connectionStream.getStream() != null && connectionStream.getStream().getName() != null
+                    && connectionStream.getConfig() != null && Boolean.TRUE.equals(connectionStream.getConfig().getSelected())
+            ) {
+                selected.add(connectionStream);
+            }
+        }
+        var selectedPerName = selected.stream().collect(Collectors.groupingBy(s -> s.getStream().getName(), Collectors.counting()));
+
         var planned = new ArrayList<Planned>();
         for (var connectionStream : connection.getSyncCatalog().getStreams()) {
             if (
@@ -90,7 +115,7 @@ public final class StreamAssets {
             }
 
             var stream = connectionStream.getStream();
-            var counts = committed.get(stream);
+            var counts = counts(committed, stream, selectedPerName.getOrDefault(stream.getName(), 0L) == 1);
             // A succeeded job refreshes a stream even when nothing new arrived
             if (committed.isEmpty() ? !jobSucceeded : counts == null || counts.records() == null || (counts.records() <= 0 && !jobSucceeded)) {
                 continue;
@@ -292,7 +317,7 @@ public final class StreamAssets {
         return new AssetIdentifier(null, null, sanitize(snapshot.getConnection().getSourceId(), namespace, stream.getName()), External.ASSET_TYPE);
     }
 
-    private static String sourceTableId(DestinationLocation location, String namespace, String stream) {
+    private static String sourceTableId(ConnectorLocation location, String namespace, String stream) {
         var schema = namespace != null ? namespace : location.schema();
         return schema == null ? null : sanitize(location.database(), schema, stream);
     }

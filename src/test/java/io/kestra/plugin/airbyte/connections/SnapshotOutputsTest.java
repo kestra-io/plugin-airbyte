@@ -1,6 +1,7 @@
 package io.kestra.plugin.airbyte.connections;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -28,6 +29,7 @@ import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
 import io.kestra.plugin.airbyte.StreamAssets;
+import io.kestra.plugin.airbyte.models.OnPartialSuccess;
 
 import jakarta.inject.Inject;
 
@@ -277,6 +279,103 @@ class SnapshotOutputsTest {
             assertThat(file, not(containsString("shopdb")));
             assertThat(file, not(containsString(SECRET_PASSWORD)));
         }
+    }
+
+    private void stubPostgresSource() {
+        stubFor(
+            post(urlPathMatching("/api/v1/sources/get/?"))
+                .withRequestBody(matchingJsonPath("$.sourceId", equalTo("src-1")))
+                .willReturn(okJson("""
+                    {
+                      "sourceId": "src-1", "name": "production db", "sourceName": "Postgres", "sourceDefinitionId": "def-src", "workspaceId": "ws-1",
+                      "connectionConfiguration": { "host": "%s", "database": "shop", "password": "%s" }
+                    }
+                    """.formatted(SECRET_HOST, SECRET_PASSWORD)))
+        );
+    }
+
+    // Airbyte OSS reports the stats of a database source without streamNamespace, while the catalog streams carry one
+    private void stubNamespaceLessJob(long id, String configType, String jobStatus, String attemptStatus, String failureSummary) {
+        stubFor(
+            post(urlPathMatching("/api/v1/jobs/get/?"))
+                .withRequestBody(matchingJsonPath("$.id", equalTo(String.valueOf(id))))
+                .willReturn(okJson("""
+                    {
+                      "job": { "id": %d, "configType": "%s", "configId": "%s", "status": "%s", "createdAt": 1700000000 },
+                      "attempts": [
+                        { "attempt": { "id": 0, "status": "%s", "createdAt": 1700000010, "endedAt": 1700000070, %s
+                            "streamStats": [
+                              { "streamName": "customers", "stats": { "recordsEmitted": 3, "recordsCommitted": 3, "bytesCommitted": 30 } },
+                              { "streamName": "orders", "stats": { "recordsEmitted": 0, "recordsCommitted": 0 } }
+                            ] },
+                          "logs": { "logLines": [] } }
+                      ]
+                    }
+                    """.formatted(id, configType, CONNECTION_ID, jobStatus, attemptStatus, failureSummary)))
+        );
+    }
+
+    private List<AssetEmit> runSyncCollectingAssets(Sync.SyncBuilder<?, ?> builder) throws Exception {
+        var emitter = Mockito.mock(AssetEmitter.class);
+        var task = builder.build();
+        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        Mockito.doReturn(emitter).when(runContext).assets();
+        task.run(runContext);
+
+        var captor = ArgumentCaptor.forClass(AssetEmit.class);
+        Mockito.verify(emitter, Mockito.atLeast(0)).emit(captor.capture());
+        return captor.getAllValues();
+    }
+
+    @Test
+    void database_sources_without_stream_namespace_in_the_stats_still_emit_assets(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubPostgresSource();
+        stubTrigger(105);
+        stubNamespaceLessJob(105, "sync", "succeeded", "succeeded", "");
+
+        var emits = runSyncCollectingAssets(sync(wiremock));
+
+        assertThat(emits.size(), is(2));
+        var customers = emits.getFirst();
+        assertThat(customers.inputs().getFirst().id(), is("shop.public.customers"));
+        assertThat(customers.inputs().getFirst().type(), is(StreamAssets.TABLE_ASSET_TYPE));
+        assertThat(customers.outputs().getFirst().getId(), is("dst-1.public.customers"));
+        assertThat(customers.outputs().getFirst().getMetadata().get("recordsCommitted"), is(3L));
+        // The 0-record stream of a SUCCEEDED job is emitted too
+        var orders = emits.get(1);
+        assertThat(orders.inputs().getFirst().id(), is("shop.public.orders"));
+        assertThat(orders.outputs().getFirst().getMetadata().get("recordsCommitted"), is(0L));
+    }
+
+    @Test
+    void refresh_jobs_emit_assets(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubPostgresSource();
+        stubTrigger(106);
+        stubNamespaceLessJob(106, "refresh", "succeeded", "succeeded", "");
+
+        var emits = runSyncCollectingAssets(sync(wiremock));
+
+        assertThat(emits.size(), is(2));
+        assertThat(emits.getFirst().outputs().getFirst().getMetadata().get("recordsCommitted"), is(3L));
+    }
+
+    @Test
+    void partial_success_jobs_emit_no_asset_even_for_a_zero_row_stream(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubPostgresSource();
+        stubTrigger(107);
+        stubNamespaceLessJob(107, "sync", "failed", "failed", "\"failureSummary\": { \"partialSuccess\": true, \"failures\": [] },");
+
+        var emitter = Mockito.mock(AssetEmitter.class);
+        var task = sync(wiremock).onPartialSuccess(Property.ofValue(OnPartialSuccess.WARNING)).build();
+        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        Mockito.doReturn(emitter).when(runContext).assets();
+        var out = task.run(runContext);
+
+        assertThat(out.finalState(), is(Optional.of(State.Type.WARNING)));
+        Mockito.verify(emitter, Mockito.never()).emit(Mockito.any());
     }
 
     @Test
