@@ -30,7 +30,6 @@ import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -432,6 +431,75 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
 
         verify(exactly(0), postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
         verify(exactly(0), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
+    }
+
+    @Test
+    void run_wait_true_rejects_too_large_maxLogEvents_before_triggering(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        assertInvalidMaxLogEventsFailsBeforeTriggering(CheckStatus.MAX_LOG_EVENTS_LIMIT + 1, wireMockRuntimeInfo);
+    }
+
+    @Test
+    void run_wait_true_rejects_negative_maxLogEvents_before_triggering(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        assertInvalidMaxLogEventsFailsBeforeTriggering(-1, wireMockRuntimeInfo);
+    }
+
+    private void assertInvalidMaxLogEventsFailsBeforeTriggering(int maxLogEvents, WireMockRuntimeInfo wireMockRuntimeInfo) {
+        stubApplicationToken();
+        stubJobsList("""
+            { "jobs": [], "totalJobCount": 0 }
+            """);
+
+        Sync task = Sync.builder()
+            .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .applicationCredentials(
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
+                    .clientId(Property.ofValue("local-client"))
+                    .clientSecret(Property.ofValue("local-secret"))
+                    .build()
+            )
+            .connectionId(Property.ofValue(connectionId))
+            .wait(Property.ofValue(true))
+            .maxLogEvents(Property.ofValue(maxLogEvents))
+            .build();
+
+        assertThrows(IllegalArgumentException.class, () -> task.run(runContextFactory.of(Map.of())));
+
+        verify(exactly(0), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
+        verify(exactly(0), postRequestedFor(urlPathMatching("/api/v1/jobs/list/?")));
+    }
+
+    @Test
+    void run_wait_false_ignores_invalid_maxLogEvents(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubApplicationToken();
+        stubJobsList("""
+            { "jobs": [], "totalJobCount": 0 }
+            """);
+
+        stubFor(
+            post(urlPathMatching("/api/v1/connections/sync/?"))
+                .withHeader("Authorization", equalTo("Bearer ey.mock.local"))
+                .willReturn(okJson("""
+                    { "job": { "id": 301, "status": "running" }, "attempts": [] }
+                    """))
+        );
+
+        Sync task = Sync.builder()
+            .url(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .applicationCredentials(
+                AbstractAirbyteConnection.ApplicationCredentials.builder()
+                    .clientId(Property.ofValue("local-client"))
+                    .clientSecret(Property.ofValue("local-secret"))
+                    .build()
+            )
+            .connectionId(Property.ofValue(connectionId))
+            .wait(Property.ofValue(false))
+            .maxLogEvents(Property.ofValue(CheckStatus.MAX_LOG_EVENTS_LIMIT + 1))
+            .build();
+
+        var out = task.run(runContextFactory.of(Map.of()));
+
+        assertThat(out.getJobId(), is(301L));
+        verify(exactly(1), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
     }
 
     @Test

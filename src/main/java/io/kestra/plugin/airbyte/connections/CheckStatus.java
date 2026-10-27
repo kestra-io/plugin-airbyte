@@ -11,6 +11,7 @@ import org.slf4j.event.Level;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
+import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.models.annotations.Example;
@@ -255,6 +256,17 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         return run(runContext, null, true);
     }
 
+    // Shared with Sync so an invalid value fails before a job is triggered
+    static int renderMaxLogEvents(RunContext runContext, Property<Integer> maxLogEvents) throws IllegalVariableEvaluationException {
+        var rMaxLogEvents = runContext.render(maxLogEvents).as(Integer.class).orElse(DEFAULT_MAX_LOG_EVENTS);
+        if (rMaxLogEvents < 0 || rMaxLogEvents > MAX_LOG_EVENTS_LIMIT) {
+            throw new IllegalArgumentException(
+                "`maxLogEvents` must be between 0 and " + MAX_LOG_EVENTS_LIMIT + ", but was " + rMaxLogEvents + ". Use 0 to disable the Airbyte logs"
+            );
+        }
+        return rMaxLogEvents;
+    }
+
     CheckStatus.Output run(RunContext runContext, ConnectionSnapshot snapshot, boolean fetchSnapshotIfMissing) throws Exception {
         Logger logger = runContext.logger();
 
@@ -263,12 +275,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         // Check rendered jobId provided is a long
         Long jobIdRendered = Long.parseLong(runContext.render(this.jobId).as(String.class).orElse(null));
 
-        var rMaxLogEvents = runContext.render(this.maxLogEvents).as(Integer.class).orElse(DEFAULT_MAX_LOG_EVENTS);
-        if (rMaxLogEvents < 0 || rMaxLogEvents > MAX_LOG_EVENTS_LIMIT) {
-            throw new IllegalArgumentException(
-                "`maxLogEvents` must be between 0 and " + MAX_LOG_EVENTS_LIMIT + ", but was " + rMaxLogEvents + ". Use 0 to disable the Airbyte logs"
-            );
-        }
+        var rMaxLogEvents = renderMaxLogEvents(runContext, this.maxLogEvents);
         var rLogFrequency = runContext.render(this.logFrequency).as(Duration.class).orElse(Duration.ofSeconds(10));
         var airbyteLogs = new AirbyteLogs(
             logger,

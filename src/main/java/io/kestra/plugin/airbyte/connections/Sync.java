@@ -306,6 +306,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         Logger logger = runContext.logger();
         String rConnectionId = runContext.render(this.connectionId).as(String.class).orElseThrow();
         OnActiveSync policy = resolveOnActiveSyncPolicy(runContext);
+        var rWait = runContext.render(this.wait).as(Boolean.class).orElseThrow();
+        if (rWait) {
+            // Fail fast: once the job is triggered, a late validation error would leave it running with no jobId output
+            CheckStatus.renderMaxLogEvents(runContext, this.maxLogEvents);
+        }
 
         Optional<Long> activeJobId = findActiveSyncJob(runContext, rConnectionId);
         boolean adopted = activeJobId.isPresent();
@@ -342,7 +347,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
         var snapshot = ConnectionSnapshots.fetch(this, runContext, rConnectionId).orElse(null);
 
-        if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
+        if (!rWait) {
             return notWaitingOutput(runContext, jobId, adopted, snapshot);
         }
 
