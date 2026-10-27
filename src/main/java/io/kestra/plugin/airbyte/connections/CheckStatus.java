@@ -476,8 +476,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             .map(totals -> totals.rows)
             .filter(Objects::nonNull)
             .reduce(Long::sum);
-        var rowsSynced = committedRows.orElseGet(() ->
-            successfulAttempts.stream()
+        var rowsSynced = committedRows.orElseGet(
+            () -> successfulAttempts.stream()
                 .map(Attempt::getRecordsSynced)
                 .filter(Objects::nonNull)
                 .reduce(0L, Long::sum)

@@ -477,11 +477,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .addHeader("Accept-Encoding", "identity")
             .body(
                 HttpRequest.JsonRequestBody.builder()
-                    .content(Map.of(
-                        "configTypes", List.of("sync"),
-                        "configId", connectionId,
-                        "pagination", Map.of("pageSize", 5, "rowOffset", 0)
-                    ))
+                    .content(
+                        Map.of(
+                            "configTypes", List.of("sync"),
+                            "configId", connectionId,
+                            "pagination", Map.of("pageSize", 5, "rowOffset", 0)
+                        )
+                    )
                     .build()
             );
 
@@ -491,11 +493,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .map(JobList::getJobs)
             .orElseGet(List::of)
             .stream()
-            .filter(jobInfo -> jobInfo.getJob() != null
-                // Defense-in-depth: the request above already restricts to "sync" via `configTypes`, but a server
-                // that ignores/mis-applies that filter must not be able to get a reset/clear job silently adopted.
-                && jobInfo.getJob().getConfigType() == JobConfigType.SYNC
-                && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus()))
+            .filter(
+                jobInfo -> jobInfo.getJob() != null
+                    // Defense-in-depth: the request above already restricts to "sync" via `configTypes`, but a server
+                    // that ignores/mis-applies that filter must not be able to get a reset/clear job silently adopted.
+                    && jobInfo.getJob().getConfigType() == JobConfigType.SYNC
+                    && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus())
+            )
             .map(jobInfo -> jobInfo.getJob().getId())
             .max(Comparator.naturalOrder());
     }

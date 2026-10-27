@@ -14,8 +14,8 @@ import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
-import io.kestra.plugin.airbyte.models.Destination;
 import io.kestra.plugin.airbyte.models.ConnectorLocation;
+import io.kestra.plugin.airbyte.models.Destination;
 import io.kestra.plugin.airbyte.models.Source;
 
 /**
