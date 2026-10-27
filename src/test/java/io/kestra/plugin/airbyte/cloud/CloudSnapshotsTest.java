@@ -15,6 +15,10 @@ import com.airbyte.api.models.shared.DestinationPostgres;
 import com.airbyte.api.models.shared.DestinationResponse;
 import com.airbyte.api.models.shared.NamespaceDefinitionEnum;
 import com.airbyte.api.models.shared.ScheduleTypeWithBasicEnum;
+import com.airbyte.api.models.shared.SourceConfiguration;
+import com.airbyte.api.models.shared.SourceMysql;
+import com.airbyte.api.models.shared.SourceMysqlScanChangesWithUserDefinedCursor;
+import com.airbyte.api.models.shared.SourceMysqlUpdateMethod;
 import com.airbyte.api.models.shared.SourceResponse;
 import com.airbyte.api.models.shared.StreamConfiguration;
 import com.airbyte.api.models.shared.StreamConfigurations;
@@ -28,7 +32,6 @@ import io.kestra.plugin.airbyte.models.ConnectionSummary;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -82,13 +85,13 @@ class CloudSnapshotsTest {
     }
 
     @Test
-    void maps_the_allow_listed_fields_and_only_reads_the_destination_location() throws Exception {
+    void maps_the_allow_listed_fields_and_only_reads_the_connector_locations() throws Exception {
         var source = source();
         var destination = destination();
 
         var snapshot = CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.DESTINATION, null), source, destination);
 
-        verify(source, never()).configuration();
+        verify(source).configuration();
         verify(destination).configuration();
 
         var summary = ConnectionSummary.from(snapshot);
@@ -130,6 +133,28 @@ class CloudSnapshotsTest {
         var json = JacksonMapper.ofJson().writeValueAsString(snapshot);
         assertThat(json, not(containsString("s3cret")));
         assertThat(json, not(containsString("analytics")));
+    }
+
+    @Test
+    void cloud_database_sources_give_table_inputs_without_persisting_the_location() throws Exception {
+        var source = source();
+        when(source.sourceType()).thenReturn("mysql");
+        when(source.configuration()).thenReturn(
+            SourceConfiguration.of(
+                SourceMysql.builder().host("db.example.com").database("shopdb").username("airbyte").password("s3cret")
+                    .replicationMethod(SourceMysqlUpdateMethod.of(SourceMysqlScanChangesWithUserDefinedCursor.builder().build())).build()
+            )
+        );
+
+        var snapshot = CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.DESTINATION, null), source, destination());
+        var input = StreamAssets.plan(snapshot, Map.of(), 7L, "succeeded", true).getFirst().input();
+
+        assertThat(input.id(), is("shopdb.customers"));
+        assertThat(input.type(), is(StreamAssets.TABLE_ASSET_TYPE));
+
+        var json = JacksonMapper.ofJson().writeValueAsString(snapshot);
+        assertThat(json, not(containsString("shopdb")));
+        assertThat(json, not(containsString("s3cret")));
     }
 
     @Test

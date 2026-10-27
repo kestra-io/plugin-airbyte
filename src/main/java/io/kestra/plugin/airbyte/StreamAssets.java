@@ -24,11 +24,13 @@ import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionStream;
+import io.kestra.plugin.airbyte.models.DestinationLocation;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
 import io.kestra.plugin.airbyte.models.SyncMetadata;
 
 /**
- * Lineage assets of a job: one {@code Table} per replicated stream, fed by the matching source stream.
+ * Lineage assets of a job: one {@code Table} per replicated stream, fed by the matching source stream: a {@code Table} for a database
+ * source, else an {@code External} asset.
  */
 public final class StreamAssets {
     public static final String TABLE_ASSET_TYPE = "io.kestra.plugin.ee.assets.Table";
@@ -89,11 +91,12 @@ public final class StreamAssets {
 
             var stream = connectionStream.getStream();
             var counts = committed.get(stream);
-            if (committed.isEmpty() ? !jobSucceeded : counts == null || counts.records() == null || counts.records() <= 0) {
+            // A succeeded job refreshes a stream even when nothing new arrived
+            if (committed.isEmpty() ? !jobSucceeded : counts == null || counts.records() == null || (counts.records() <= 0 && !jobSucceeded)) {
                 continue;
             }
 
-            planned.add(new Planned(sourceIdentifier(connection, stream), table(snapshot, connectionStream, counts, jobId, jobStatus)));
+            planned.add(new Planned(sourceIdentifier(snapshot, stream), table(snapshot, connectionStream, counts, jobId, jobStatus)));
         }
         return planned;
     }
@@ -273,8 +276,25 @@ public final class StreamAssets {
             .build();
     }
 
-    private static AssetIdentifier sourceIdentifier(Connection connection, StreamDescriptor stream) {
-        return new AssetIdentifier(null, null, sanitize(connection.getSourceId(), blankToNull(stream.getNamespace()), stream.getName()), External.ASSET_TYPE);
+    // A database source is the same table the JDBC, dbt and Fivetran tasks emit; any other source stays an External asset
+    private static AssetIdentifier sourceIdentifier(ConnectionSnapshot snapshot, StreamDescriptor stream) {
+        var namespace = blankToNull(stream.getNamespace());
+        var location = snapshot.getSourceLocation();
+        if (location != null) {
+            // MySQL and ClickHouse have no schema level: the stream namespace is the database
+            var id = location.schemaless()
+                ? sanitize(namespace != null ? namespace : location.database(), stream.getName())
+                : sourceTableId(location, namespace, stream.getName());
+            if (id != null) {
+                return new AssetIdentifier(null, null, id, TABLE_ASSET_TYPE);
+            }
+        }
+        return new AssetIdentifier(null, null, sanitize(snapshot.getConnection().getSourceId(), namespace, stream.getName()), External.ASSET_TYPE);
+    }
+
+    private static String sourceTableId(DestinationLocation location, String namespace, String stream) {
+        var schema = namespace != null ? namespace : location.schema();
+        return schema == null ? null : sanitize(location.database(), schema, stream);
     }
 
     private static String customNamespace(String format, String sourceNamespace) {

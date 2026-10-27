@@ -20,8 +20,8 @@ import io.kestra.plugin.airbyte.models.Source;
 
 /**
  * Reads the connection, source and destination through the documented config API. The snapshot models only declare non-secret
- * fields, so connector configurations cannot reach the snapshot. Only the destination location keys are read from the destination
- * configuration, into a field that is never serialized.
+ * fields, so connector configurations cannot reach the snapshot. Only the location keys are read from the destination and source
+ * configurations, into fields that are never serialized.
  */
 public final class ConnectionSnapshots {
     private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
@@ -33,13 +33,15 @@ public final class ConnectionSnapshots {
         try {
             var baseUrl = task.baseUrl(runContext);
             var connection = post(task, runContext, baseUrl + "/api/v1/connections/get", Map.of("connectionId", connectionId), Connection.class);
-            var source = post(task, runContext, baseUrl + "/api/v1/sources/get", Map.of("sourceId", connection.getSourceId()), Source.class);
+            var sourceResponse = post(task, runContext, baseUrl + "/api/v1/sources/get", Map.of("sourceId", connection.getSourceId()), Map.class);
+            var source = MAPPER.convertValue(sourceResponse, Source.class);
             var destinationResponse = post(task, runContext, baseUrl + "/api/v1/destinations/get", Map.of("destinationId", connection.getDestinationId()), Map.class);
             var destination = MAPPER.convertValue(destinationResponse, Destination.class);
 
             return Optional.of(
                 ConnectionSnapshot.builder().connection(connection).source(source).destination(destination)
                     .destinationLocation(location(runContext, destination, destinationResponse))
+                    .sourceLocation(sourceLocation(runContext, source, sourceResponse))
                     .build()
             );
         } catch (Exception e) {
@@ -55,6 +57,14 @@ public final class ConnectionSnapshots {
         var location = DestinationLocations.parse(destination.getDestinationName(), destinationResponse.get("connectionConfiguration"));
         if (location.isEmpty()) {
             runContext.logger().debug("No destination location resolved for destination {}, asset ids fall back to the Airbyte destination ID", destination.getDestinationId());
+        }
+        return location.orElse(null);
+    }
+
+    private static DestinationLocation sourceLocation(RunContext runContext, Source source, Map<?, ?> sourceResponse) {
+        var location = DestinationLocations.parse(source.getSourceName(), sourceResponse.get("connectionConfiguration"));
+        if (location.isEmpty()) {
+            runContext.logger().debug("No source location resolved for source {}, asset inputs fall back to the Airbyte source ID", source.getSourceId());
         }
         return location.orElse(null);
     }

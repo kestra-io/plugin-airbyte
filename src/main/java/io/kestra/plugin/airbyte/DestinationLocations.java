@@ -16,7 +16,8 @@ public final class DestinationLocations {
     }
 
     /**
-     * Never throws: an unreadable or unknown configuration only means asset ids fall back to the Airbyte destination ID.
+     * Never throws: an unreadable or unknown configuration only means asset ids fall back to the Airbyte destination or source ID. Also
+     * used for database sources, whose configuration holds the same location keys.
      *
      * @param configuration the raw connector configuration, a map or an SDK model
      */

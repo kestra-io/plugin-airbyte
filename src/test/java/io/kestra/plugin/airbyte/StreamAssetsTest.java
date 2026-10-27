@@ -10,6 +10,7 @@ import org.mockito.ArgumentCaptor;
 import org.slf4j.Logger;
 
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
+import io.kestra.core.models.assets.AssetIdentifier;
 import io.kestra.core.models.assets.AssetsDeclaration;
 import io.kestra.core.models.assets.External;
 import io.kestra.core.models.flows.State;
@@ -223,10 +224,101 @@ class StreamAssetsTest {
             StreamAssets.committed(metadata), 12L, "succeeded", true
         );
 
-        assertThat(planned.size(), is(1));
+        assertThat(planned.size(), is(2));
         assertThat(planned.getFirst().output().getMetadata().get("recordsCommitted"), is(5L));
         assertThat(planned.getFirst().output().getMetadata().get("bytes"), is(50L));
+        assertThat(planned.get(1).output().getMetadata().get("recordsCommitted"), is(0L));
         assertThat(StreamAssets.committed(null).isEmpty(), is(true));
+    }
+
+    @Test
+    void zero_row_streams_are_emitted_only_when_the_job_succeeded() {
+        var snapshot = snapshot("source", null, null, stream("customers", "public", null), stream("empty", "public", null), stream("absent", "public", null));
+        var committed = Map.of(descriptor("customers", "public"), rows(5), descriptor("empty", "public"), rows(0));
+
+        var succeeded = StreamAssets.plan(snapshot, committed, 12L, "succeeded", true);
+        var warning = StreamAssets.plan(snapshot, committed, 12L, "failed", false);
+
+        assertThat(succeeded.stream().map(asset -> asset.output().getDisplayName()).toList(), contains("customers", "empty"));
+        var empty = succeeded.get(1).output().getMetadata();
+        assertThat(empty.get("recordsCommitted"), is(0L));
+        assertThat(empty.get("lastJobId"), is(12L));
+        assertThat(empty.get("lastJobStatus"), is("succeeded"));
+        assertThat(warning.stream().map(asset -> asset.output().getDisplayName()).toList(), contains("customers"));
+    }
+
+    private static ConnectionSnapshot withSource(String sourceType, DestinationLocation sourceLocation, String namespaceDefinition, ConnectionStream... streams) {
+        var base = snapshot(namespaceDefinition, null, null, streams);
+        return ConnectionSnapshot.builder()
+            .connection(base.getConnection())
+            .source(Source.builder().sourceId("src-1").name("production db").sourceName(sourceType).build())
+            .destination(base.getDestination())
+            .sourceLocation(sourceLocation)
+            .build();
+    }
+
+    private static AssetIdentifier input(ConnectionSnapshot snapshot, String stream, String namespace) {
+        return StreamAssets.plan(snapshot, Map.of(descriptor(stream, namespace), rows(5)), 12L, "succeeded", true).getFirst().input();
+    }
+
+    @Test
+    void database_sources_give_table_inputs() {
+        var postgres = input(withSource("Postgres", new DestinationLocation("shop", null, false), "source", stream("customers", "public", null)), "customers", "public");
+        var snowflake = input(withSource("Snowflake", new DestinationLocation("SHOP", "PUBLIC", false), "source", stream("customers", "SALES", null)), "customers", "SALES");
+        var bigquery = input(withSource("BigQuery", new DestinationLocation("my-project", "raw", false), "source", stream("customers", "events", null)), "customers", "events");
+
+        assertThat(postgres.id(), is("shop.public.customers"));
+        assertThat(postgres.type(), is(StreamAssets.TABLE_ASSET_TYPE));
+        assertThat(postgres.namespace(), nullValue());
+        assertThat(snowflake.id(), is("SHOP.SALES.customers"));
+        assertThat(bigquery.id(), is("my-project.events.customers"));
+    }
+
+    @Test
+    void schemaless_database_sources_use_the_namespace_as_database() {
+        var mysql = withSource("MySQL", new DestinationLocation("shop", null, true), "source", stream("customers", "sales", null), stream("orders", null, null));
+
+        assertThat(input(mysql, "customers", "sales").id(), is("sales.customers"));
+        assertThat(input(mysql, "orders", null).id(), is("shop.orders"));
+        assertThat(input(mysql, "orders", null).type(), is(StreamAssets.TABLE_ASSET_TYPE));
+    }
+
+    @Test
+    void source_default_schema_is_used_without_a_stream_namespace() {
+        var snowflake = withSource("Snowflake", new DestinationLocation("SHOP", "PUBLIC", false), "source", stream("customers", null, null));
+
+        assertThat(input(snowflake, "customers", null).id(), is("SHOP.PUBLIC.customers"));
+    }
+
+    @Test
+    void api_and_unresolved_sources_keep_the_external_input() {
+        var api = input(withSource("Stripe", null, "source", stream("customers", null, null)), "customers", null);
+        var noSchema = input(withSource("Postgres", new DestinationLocation("shop", null, false), "source", stream("customers", null, null)), "customers", null);
+
+        assertThat(api.id(), is("src-1.customers"));
+        assertThat(api.type(), is(External.ASSET_TYPE));
+        assertThat(noSchema.id(), is("src-1.customers"));
+        assertThat(noSchema.type(), is(External.ASSET_TYPE));
+    }
+
+    @Test
+    void source_locations_are_read_per_connector_and_masked_values_ignored() {
+        var config = Map.of("database", "shop", "project_id", "proj", "dataset_id", "ds", "password", "secret");
+
+        assertThat(DestinationLocations.parse("Postgres", config).orElseThrow(), is(new DestinationLocation("shop", null, false)));
+        assertThat(DestinationLocations.parse("BigQuery", config).orElseThrow(), is(new DestinationLocation("proj", "ds", false)));
+        assertThat(DestinationLocations.parse("Stripe", config).isPresent(), is(false));
+        assertThat(DestinationLocations.parse("MySQL", Map.of("database", "********")).isPresent(), is(false));
+    }
+
+    @Test
+    void snapshot_json_never_contains_the_source_location() throws Exception {
+        var json = JacksonMapper.ofJson().writeValueAsString(
+            withSource("Postgres", new DestinationLocation("shopdb", "public", false), "source", stream("customers", "public", null))
+        );
+
+        assertThat(json, not(containsString("sourceLocation")));
+        assertThat(json, not(containsString("shopdb")));
     }
 
     @Test

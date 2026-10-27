@@ -20,8 +20,8 @@ import io.kestra.plugin.airbyte.models.StreamConfig;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
 
 /**
- * Maps the Airbyte Cloud API responses onto the shared snapshot models. {@code configuration()} of sources is never read and the one of
- * destinations only for its location keys, which are not part of the serialized snapshot. A null source or destination is allowed when
+ * Maps the Airbyte Cloud API responses onto the shared snapshot models. {@code configuration()} of sources and destinations is only read
+ * for its location keys, which are not part of the serialized snapshot. A null source or destination is allowed when
  * the SDK could not read it.
  */
 public final class CloudSnapshots {
@@ -52,6 +52,7 @@ public final class CloudSnapshots {
             .source(source == null ? null : toSource(source))
             .destination(destination == null ? null : toDestination(destination))
             .destinationLocation(location(connection, destination))
+            .sourceLocation(source == null ? null : DestinationLocations.parse(source.sourceType(), source.configuration()).orElse(null))
             .build();
     }
 

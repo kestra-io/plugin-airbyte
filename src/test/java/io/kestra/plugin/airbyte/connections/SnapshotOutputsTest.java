@@ -15,6 +15,7 @@ import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.assets.AssetsDeclaration;
+import io.kestra.core.models.assets.External;
 import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.models.property.Property;
@@ -26,6 +27,7 @@ import io.kestra.core.runners.AssetEmitter;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
+import io.kestra.plugin.airbyte.StreamAssets;
 
 import jakarta.inject.Inject;
 
@@ -237,6 +239,69 @@ class SnapshotOutputsTest {
             assertThat(file, not(containsString("analytics")));
             assertThat(file, not(containsString(SECRET_PASSWORD)));
         }
+    }
+
+    @Test
+    void database_sources_give_table_inputs_without_persisting_the_location(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubFor(
+            post(urlPathMatching("/api/v1/sources/get/?"))
+                .withRequestBody(matchingJsonPath("$.sourceId", equalTo("src-1")))
+                .willReturn(okJson("""
+                    {
+                      "sourceId": "src-1", "name": "production db", "sourceName": "Postgres", "sourceDefinitionId": "def-src", "workspaceId": "ws-1",
+                      "connectionConfiguration": { "host": "%s", "database": "shopdb", "schemas": ["public"], "password": "%s" }
+                    }
+                    """.formatted(SECRET_HOST, SECRET_PASSWORD)))
+        );
+        stubTrigger(103);
+        stubJob(103, "succeeded");
+
+        var emitter = Mockito.mock(AssetEmitter.class);
+        var task = sync(wiremock).build();
+        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        Mockito.doReturn(emitter).when(runContext).assets();
+        var out = task.run(runContext);
+
+        var captor = ArgumentCaptor.forClass(AssetEmit.class);
+        Mockito.verify(emitter, Mockito.atLeastOnce()).emit(captor.capture());
+        var emits = captor.getAllValues();
+        assertThat(emits.getFirst().inputs().getFirst().id(), is("shopdb.public.customers"));
+        assertThat(emits.getFirst().inputs().getFirst().type(), is(StreamAssets.TABLE_ASSET_TYPE));
+        // The 0-row stream of a succeeded job is emitted too
+        assertThat(emits.size(), is(2));
+        assertThat(emits.get(1).outputs().getFirst().getMetadata().get("recordsCommitted"), is(0L));
+
+        try (var stream = runContext.storage().getFile(out.getConnectionSnapshot())) {
+            var file = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(file, not(containsString("shopdb")));
+            assertThat(file, not(containsString(SECRET_PASSWORD)));
+        }
+    }
+
+    @Test
+    void api_sources_keep_the_external_input(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubTrigger(104);
+        stubJob(104, "succeeded");
+        stubFor(
+            post(urlPathMatching("/api/v1/sources/get/?"))
+                .willReturn(okJson("""
+                    { "sourceId": "src-1", "name": "stripe", "sourceName": "Stripe", "workspaceId": "ws-1",
+                      "connectionConfiguration": { "database": "not-a-db", "client_secret": "%s" } }
+                    """.formatted(SECRET_PASSWORD)))
+        );
+
+        var emitter = Mockito.mock(AssetEmitter.class);
+        var task = sync(wiremock).build();
+        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        Mockito.doReturn(emitter).when(runContext).assets();
+        task.run(runContext);
+
+        var captor = ArgumentCaptor.forClass(AssetEmit.class);
+        Mockito.verify(emitter, Mockito.atLeastOnce()).emit(captor.capture());
+        assertThat(captor.getAllValues().getFirst().inputs().getFirst().id(), is("src-1.public.customers"));
+        assertThat(captor.getAllValues().getFirst().inputs().getFirst().type(), is(External.ASSET_TYPE));
     }
 
     @Test

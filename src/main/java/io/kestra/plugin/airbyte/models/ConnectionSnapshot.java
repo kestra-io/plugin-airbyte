@@ -21,6 +21,9 @@ public class ConnectionSnapshot {
     @JsonIgnore
     DestinationLocation destinationLocation;
 
+    @JsonIgnore
+    DestinationLocation sourceLocation;
+
     /**
      * Airbyte OSS does not always return the workspace on the connection, but does on its source and destination.
      */
