@@ -46,6 +46,7 @@ Infrastructure dependencies (Docker Compose services):
 - `io.kestra.plugin.airbyte.cloud.jobs.Reset`
 - `io.kestra.plugin.airbyte.cloud.jobs.Sync`
 - `io.kestra.plugin.airbyte.connections.CheckStatus`
+- `io.kestra.plugin.airbyte.connections.Reset`
 - `io.kestra.plugin.airbyte.connections.Sync`
 - `io.kestra.plugin.airbyte.ConnectionSnapshots` and `io.kestra.plugin.airbyte.StreamAssets` (connection snapshot and lineage assets, shared with the Cloud tasks)
 
