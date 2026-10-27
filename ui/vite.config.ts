@@ -31,7 +31,7 @@ const exposes = Object.fromEntries(
                 additionalProperties: {
                     height,
                     heightWithExecution: HEIGHT_WITH_EXECUTION,
-                    customAction: { label: "Airbyte details" },
+                    customAction: { label: "Show Details" },
                 },
             },
             {

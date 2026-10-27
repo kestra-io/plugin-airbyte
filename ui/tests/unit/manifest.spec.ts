@@ -16,7 +16,7 @@ describe("vite.config.ts exposes", () => {
         ]) {
             expect(config).toContain(`type: "${type}"`);
         }
-        expect(config.match(/customAction: \{ label: "Airbyte details" \}/g)).toHaveLength(1);
+        expect(config.match(/customAction: \{ label: "Show Details" \}/g)).toHaveLength(1);
         expect(config.match(/slotName: "topology-task-modal"/g)).toHaveLength(1);
         expect(config.match(/slotName: "topology-details"/g)).toHaveLength(1);
     });
