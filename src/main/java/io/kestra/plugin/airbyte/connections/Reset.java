@@ -9,7 +9,7 @@ import java.util.Optional;
 
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.http.HttpResponse;
-import io.kestra.core.http.client.HttpClientException;
+import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
@@ -95,7 +95,9 @@ import lombok.experimental.SuperBuilder;
 public class Reset extends AbstractAirbyteConnection implements RunnableTask<Reset.Output> {
     @Schema(
         title = "Connection ID",
-        description = "Airbyte connection ID that owns the streams to reset"
+        description = """
+            Airbyte connection ID that owns the streams to reset.
+            """
     )
     @NotNull
     @PluginProperty(group = "main")
@@ -103,7 +105,11 @@ public class Reset extends AbstractAirbyteConnection implements RunnableTask<Res
 
     @Schema(
         title = "Streams to reset",
-        description = "Streams to reset, each with a `streamName` and an optional `streamNamespace`. At least one stream is required. Resetting a stream deletes its data in the destination and resets its cursors"
+        description = """
+            Streams to reset, each with a `streamName` and an optional `streamNamespace`. At least one stream is required.
+
+            Resetting a stream deletes its data in the destination and resets its cursors.
+            """
     )
     @NotNull
     @NotEmpty
@@ -113,13 +119,13 @@ public class Reset extends AbstractAirbyteConnection implements RunnableTask<Res
 
     @Override
     public Reset.Output run(RunContext runContext) throws Exception {
-        var rConnectionId = runContext.render(this.connectionId).as(String.class).orElseThrow();
+        var rConnectionId = runContext.render(this.connectionId).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("connectionId is required: set the Airbyte connection ID to reset"));
         var rStreams = renderStreams(runContext);
 
         var resetRequest = HttpRequest.builder()
             .uri(URI.create(baseUrl(runContext) + "/api/v1/connections/reset/stream"))
             .method("POST")
-            .addHeader("Accept-Encoding", "identity")
             .body(
                 HttpRequest.JsonRequestBody.builder()
                     .content(Map.of("connectionId", rConnectionId, "streams", rStreams))
@@ -131,8 +137,19 @@ public class Reset extends AbstractAirbyteConnection implements RunnableTask<Res
             response = this.request(runContext, resetRequest, JobInfo.class);
         } catch (SyncAlreadyRunningException e) {
             throw new IllegalStateException("Airbyte rejected the reset because a job is already running for connection " + rConnectionId, e);
-        } catch (HttpClientException e) {
-            throw new RuntimeException("Request failed with error: " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            var rejection = findResponseException(e);
+            if (rejection == null) {
+                throw e;
+            }
+            throw new IllegalStateException(
+                "Airbyte rejected the reset of connection %s with HTTP %d: %s".formatted(
+                    rConnectionId,
+                    rejection.getResponse().getStatus().getCode(),
+                    rejection.getMessage()
+                ),
+                e
+            );
         }
 
         var jobInfo = Optional.ofNullable(response.getBody())
@@ -143,6 +160,15 @@ public class Reset extends AbstractAirbyteConnection implements RunnableTask<Res
         runContext.logger().info("Reset of {} stream(s) of connection {} started as job {}", rStreams.size(), rConnectionId, jobId);
 
         return Output.builder().jobId(jobId).build();
+    }
+
+    private static HttpClientResponseException findResponseException(Throwable error) {
+        for (var current = error; current != null; current = current.getCause()) {
+            if (current instanceof HttpClientResponseException responseException) {
+                return responseException;
+            }
+        }
+        return null;
     }
 
     private List<Map<String, String>> renderStreams(RunContext runContext) throws Exception {
@@ -176,7 +202,9 @@ public class Reset extends AbstractAirbyteConnection implements RunnableTask<Res
     public static class StreamSelection {
         @Schema(
             title = "Stream name",
-            description = "Name of the stream to reset, as it appears in the source"
+            description = """
+                Name of the stream to reset, as it appears in the source.
+                """
         )
         @NotNull
         @PluginProperty(group = "main")
@@ -184,7 +212,9 @@ public class Reset extends AbstractAirbyteConnection implements RunnableTask<Res
 
         @Schema(
             title = "Stream namespace",
-            description = "Namespace of the stream to reset, such as a database schema. Leave it out for streams without a namespace"
+            description = """
+                Namespace of the stream to reset, such as a database schema. Leave it out for streams without a namespace.
+                """
         )
         @PluginProperty(group = "main")
         private Property<String> streamNamespace;
@@ -195,7 +225,9 @@ public class Reset extends AbstractAirbyteConnection implements RunnableTask<Res
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Job ID",
-            description = "Airbyte job ID of the reset. Pass it to `io.kestra.plugin.airbyte.connections.CheckStatus` to wait for the job to finish"
+            description = """
+                Airbyte job ID of the reset. Pass it to `io.kestra.plugin.airbyte.connections.CheckStatus` to wait for the job to finish.
+                """
         )
         private final Long jobId;
     }

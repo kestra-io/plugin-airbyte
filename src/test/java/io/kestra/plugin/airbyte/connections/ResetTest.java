@@ -10,7 +10,6 @@ import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
-import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 
 import jakarta.inject.Inject;
@@ -97,7 +96,7 @@ class ResetTest {
 
     @Test
     void failsWithoutStreams(WireMockRuntimeInfo wm) {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var noStreams = assertThrows(IllegalArgumentException.class, () -> task(wm).streams(List.of()).build().run(runContext));
         assertThat(noStreams.getMessage(), containsString("At least one stream"));
@@ -108,7 +107,7 @@ class ResetTest {
 
     @Test
     void failsOnBlankStreamName(WireMockRuntimeInfo wm) {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var blank = assertThrows(IllegalArgumentException.class, () -> task(wm).streams(List.of(stream("  ", "public"))).build().run(runContext));
         assertThat(blank.getMessage(), containsString("streamName"));
@@ -133,7 +132,13 @@ class ResetTest {
                 .willReturn(aResponse().withStatus(422).withBody("{\"message\":\"Stream does not exist\"}"))
         );
 
-        assertThrows(Exception.class, () -> task(wm).streams(List.of(stream("missing", "public"))).build()
+        var e = assertThrows(IllegalStateException.class, () -> task(wm).streams(List.of(stream("missing", "public"))).build()
             .run(runContextFactory.of(Map.of())));
+
+        assertThat(e.getMessage(), containsString("422"));
+        assertThat(e.getMessage(), containsString(CONNECTION_ID));
+        assertThat(e.getCause(), notNullValue());
+        // a client error is not retryable: Airbyte must be called exactly once
+        verify(1, postRequestedFor(urlPathMatching("/api/v1/connections/reset/stream/?")));
     }
 }
