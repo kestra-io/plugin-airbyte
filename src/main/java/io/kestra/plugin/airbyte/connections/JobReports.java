@@ -3,6 +3,7 @@ package io.kestra.plugin.airbyte.connections;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -32,7 +33,6 @@ import io.kestra.plugin.airbyte.models.FailureSummary;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobStatus;
 import io.kestra.plugin.airbyte.models.JobSummary;
-import io.kestra.plugin.airbyte.models.LogRow;
 
 final class JobReports {
     private JobReports() {
@@ -118,8 +118,8 @@ final class JobReports {
         return storeRows(runContext, rows);
     }
 
-    static URI storeLogs(RunContext runContext, List<LogRow> rows) throws IOException {
-        return storeRows(runContext, rows);
+    static URI storeLogs(RunContext runContext, Path file) throws IOException {
+        return runContext.storage().putFile(file.toFile());
     }
 
     private static URI storeRows(RunContext runContext, List<?> rows) throws IOException {
@@ -132,6 +132,8 @@ final class JobReports {
         return runContext.storage().putFile(file);
     }
 
+    // The worker drops WorkerTaskResult outputs of dynamic task runs, so the `jobId` marker read by the `logs` endpoint goes on the TaskRun.
+    @SuppressWarnings("deprecation")
     static void emitAttemptTaskRuns(RunContext runContext, JobInfo jobInfo, List<AttemptRow> rows) {
         var parentTaskRunId = variable(runContext, "taskrun", "id");
         if (parentTaskRunId == null) {
@@ -149,6 +151,7 @@ final class JobReports {
 
             var taskRun = TaskRun.builder()
                 .id(IdUtils.create())
+                .outputs(Map.of("jobId", jobInfo.getJob().getId()))
                 .namespace(variable(runContext, "flow", "namespace"))
                 .flowId(variable(runContext, "flow", "id"))
                 .taskId("attempt-" + row.getAttemptNumber())
@@ -164,9 +167,11 @@ final class JobReports {
 
     static String failureMessage(JobInfo jobInfo, JobSummary summary, String jobUrl) {
         var firstMessage = summary.getFailures().stream()
-            .map(failure -> failure.getExternalMessage() != null && !failure.getExternalMessage().isBlank()
-                ? failure.getExternalMessage()
-                : "[" + failure.getOrigin() + "/" + failure.getType() + "]")
+            .map(
+                failure -> failure.getExternalMessage() != null && !failure.getExternalMessage().isBlank()
+                    ? failure.getExternalMessage()
+                    : "[" + failure.getOrigin() + "/" + failure.getType() + "]"
+            )
             .findFirst();
 
         return "Airbyte job " + jobInfo.getJob().getId() + " ended " + summary.getStatus() + " after " + summary.getAttemptCount() + " attempt(s)"
@@ -179,11 +184,13 @@ final class JobReports {
             return List.of();
         }
         return row.getFailures().stream()
-            .map(failure -> new DynamicTaskRunLog(
-                Level.ERROR,
-                "[" + failure.getOrigin() + "/" + failure.getType() + "] "
-                    + Optional.ofNullable(failure.getExternalMessage()).orElse("No failure message reported by Airbyte")
-            ))
+            .map(
+                failure -> new DynamicTaskRunLog(
+                    Level.ERROR,
+                    "[" + failure.getOrigin() + "/" + failure.getType() + "] "
+                        + Optional.ofNullable(failure.getExternalMessage()).orElse("No failure message reported by Airbyte")
+                )
+            )
             .toList();
     }
 

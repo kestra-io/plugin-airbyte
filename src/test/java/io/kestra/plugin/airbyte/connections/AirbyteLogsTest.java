@@ -1,19 +1,25 @@
 package io.kestra.plugin.airbyte.connections;
 
+import java.io.IOException;
 import java.lang.reflect.Proxy;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.Logger;
-import org.slf4j.helpers.MessageFormatter;
 import org.slf4j.event.Level;
+import org.slf4j.helpers.MessageFormatter;
 
+import io.kestra.core.serializers.FileSerde;
+import io.kestra.plugin.airbyte.models.Attempt;
 import io.kestra.plugin.airbyte.models.AttemptInfo;
 import io.kestra.plugin.airbyte.models.Event;
 import io.kestra.plugin.airbyte.models.Log;
-import io.kestra.plugin.airbyte.models.Attempt;
+import io.kestra.plugin.airbyte.models.LogRow;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -26,7 +32,7 @@ class AirbyteLogsTest {
 
     private final Logger logger = (Logger) Proxy.newProxyInstance(
         Logger.class.getClassLoader(),
-        new Class<?>[]{Logger.class},
+        new Class<?>[] { Logger.class },
         (proxy, method, args) ->
         {
             if (args != null && args.length == 2 && args[0] instanceof String format) {
@@ -36,8 +42,21 @@ class AirbyteLogsTest {
         }
     );
 
+    @TempDir
+    private Path dir;
+
     private AirbyteLogs logs(Level platformLevel, int max) {
-        return new AirbyteLogs(logger, platformLevel, max);
+        return new AirbyteLogs(logger, platformLevel, max, dir.resolve("airbyte-logs.ion"));
+    }
+
+    private static List<LogRow> rows(AirbyteLogs logs) throws IOException {
+        logs.close();
+        if (logs.count() == 0) {
+            return List.of();
+        }
+        try (var input = Files.newInputStream(logs.file())) {
+            return FileSerde.readAll(input, LogRow.class).collectList().block();
+        }
     }
 
     private static Event event(long timestamp, String level, String source, String message) {
@@ -64,7 +83,7 @@ class AirbyteLogsTest {
     }
 
     @Test
-    void prefixes_the_source_and_maps_the_level_case_insensitively() {
+    void prefixes_the_source_and_maps_the_level_case_insensitively() throws Exception {
         var logs = logs(Level.INFO, 100);
 
         logs.consume(
@@ -91,13 +110,13 @@ class AirbyteLogsTest {
                 "INFO [Airbyte][source] unknown"
             )
         );
-        assertThat(logs.rows().get(3).getLogSource(), is("replication-orchestrator"));
-        assertThat(logs.rows().get(5).getLevel(), is(Level.INFO));
-        assertThat(logs.rows().getFirst().getTimestamp().toEpochMilli(), is(1L));
+        assertThat(rows(logs).get(3).getLogSource(), is("replication-orchestrator"));
+        assertThat(rows(logs).get(5).getLevel(), is(Level.INFO));
+        assertThat(rows(logs).getFirst().getTimestamp().toEpochMilli(), is(1L));
     }
 
     @Test
-    void platform_log_level_only_moves_platform_info_events() {
+    void platform_log_level_only_moves_platform_info_events() throws Exception {
         var logs = logs(Level.DEBUG, 100);
 
         logs.consume(
@@ -113,7 +132,7 @@ class AirbyteLogsTest {
         );
 
         assertThat(formatted(), contains("DEBUG [Airbyte][platform] noise", "WARN [Airbyte][platform] backoff", "ERROR [Airbyte][platform] boom", "INFO [Airbyte][source] records"));
-        assertThat(logs.rows().getFirst().getLevel(), is(Level.INFO));
+        assertThat(rows(logs).getFirst().getLevel(), is(Level.INFO));
     }
 
     @Test
@@ -124,11 +143,11 @@ class AirbyteLogsTest {
         logs.consume(List.of(attempt(0, event(1, "info", "source", "a"), event(2, "info", "source", "b"), event(3, "info", "source", "c"), event(4, "info", "source", "d"))));
 
         assertThat(formatted(), contains("INFO [Airbyte][source] a", "INFO [Airbyte][source] b", "INFO [Airbyte][source] c", "INFO [Airbyte][source] d"));
-        assertThat(logs.rows().size(), is(4));
+        assertThat(logs.count(), is(4));
     }
 
     @Test
-    void legacy_log_lines_do_not_drop_the_first_new_line() {
+    void legacy_log_lines_do_not_drop_the_first_new_line() throws Exception {
         var logs = logs(Level.INFO, 100);
 
         logs.consume(List.of(legacyAttempt(0, "a", "b")));
@@ -138,7 +157,7 @@ class AirbyteLogsTest {
     }
 
     @Test
-    void legacy_log_lines_keep_guessing_the_level() {
+    void legacy_log_lines_keep_guessing_the_level() throws Exception {
         var logs = logs(Level.INFO, 100);
         var esc = "\u001b[0m";
 
@@ -146,22 +165,23 @@ class AirbyteLogsTest {
 
         assertThat(
             formatted(), contains(
-                "ERROR [Airbyte] ERROR" + esc + " failed", "WARN [Airbyte] WARN" + esc + " careful", "DEBUG [Airbyte] DEBUG" + esc + " detail", "TRACE [Airbyte] TRACE" + esc + " finer", "INFO [Airbyte] plain"
+                "ERROR [Airbyte] ERROR" + esc + " failed", "WARN [Airbyte] WARN" + esc + " careful", "DEBUG [Airbyte] DEBUG" + esc + " detail", "TRACE [Airbyte] TRACE" + esc + " finer",
+                "INFO [Airbyte] plain"
             )
         );
-        assertThat(logs.rows().getFirst().getTimestamp(), is(nullValue()));
-        assertThat(logs.rows().getFirst().getLogSource(), is(nullValue()));
+        assertThat(rows(logs).getFirst().getTimestamp(), is(nullValue()));
+        assertThat(rows(logs).getFirst().getLogSource(), is(nullValue()));
     }
 
     @Test
-    void tracks_the_sent_count_per_attempt_number_not_per_position() {
+    void tracks_the_sent_count_per_attempt_number_not_per_position() throws Exception {
         var logs = logs(Level.INFO, 100);
 
         logs.consume(List.of(attempt(1, event(1, "info", "source", "second-1")), attempt(0, event(1, "info", "source", "first-1"))));
         logs.consume(List.of(attempt(0, event(1, "info", "source", "first-1"), event(2, "info", "source", "first-2")), attempt(1, event(1, "info", "source", "second-1"))));
 
         assertThat(formatted(), contains("INFO [Airbyte][source] second-1", "INFO [Airbyte][source] first-1", "INFO [Airbyte][source] first-2"));
-        assertThat(logs.rows().stream().map(row -> row.getAttemptNumber()).toList(), contains(1, 0, 0));
+        assertThat(rows(logs).stream().map(row -> row.getAttemptNumber()).toList(), contains(1, 0, 0));
     }
 
     @Test
@@ -170,7 +190,7 @@ class AirbyteLogsTest {
 
         logs.consume(List.of(attempt(0, event(1, "info", "source", "a"), event(2, "info", "source", "b"), event(3, "info", "source", "c"), event(4, "info", "source", "d"))));
 
-        assertThat(logs.rows().size(), is(2));
+        assertThat(logs.count(), is(2));
         assertThat(formatted().size(), is(3));
         assertThat(formatted().getLast(), containsString("maxLogEvents"));
     }
@@ -182,7 +202,8 @@ class AirbyteLogsTest {
         logs.consume(List.of(attempt(0, event(1, "info", "source", "a"))));
 
         assertThat(logs.isEnabled(), is(false));
-        assertThat(logs.rows().size(), is(0));
+        assertThat(logs.count(), is(0));
+        assertThat(Files.exists(logs.file()), is(false));
         assertThat(formatted().size(), is(0));
     }
 

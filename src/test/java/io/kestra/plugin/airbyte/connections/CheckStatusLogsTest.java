@@ -258,7 +258,7 @@ class CheckStatusLogsTest {
 
     @Test
     void skips_the_full_fetch_during_backoff_while_the_job_has_not_changed(WireMockRuntimeInfo wiremock) throws Exception {
-        stubLightUpdatedAt(new String[]{"running", "incomplete", "incomplete", "incomplete", "incomplete", "succeeded"}, new long[]{1, 1, 1, 1, 1, 1});
+        stubLightUpdatedAt(new String[] { "running", "incomplete", "incomplete", "incomplete", "incomplete", "succeeded" }, new long[] { 1, 1, 1, 1, 1, 1 });
         stubGet(
             job("running", attempt(0, "failed", event("info", "source", "a"))),
             job("succeeded", attempt(0, "failed", event("info", "source", "a")), attempt(1, "succeeded", event("info", "source", "b")))
@@ -275,7 +275,7 @@ class CheckStatusLogsTest {
     @Test
     void fetches_the_job_again_when_its_update_time_changes(WireMockRuntimeInfo wiremock) throws Exception {
         var token = IdUtils.create();
-        stubLightUpdatedAt(new String[]{"incomplete", "incomplete", "incomplete", "incomplete", "succeeded"}, new long[]{1, 1, 2, 2, 2});
+        stubLightUpdatedAt(new String[] { "incomplete", "incomplete", "incomplete", "incomplete", "succeeded" }, new long[] { 1, 1, 2, 2, 2 });
         stubGet(
             job("incomplete", attempt(0, "failed", event("info", "source", token + " first"))),
             job("incomplete", attempt(0, "failed", event("info", "source", token + " first")), attempt(1, "failed", event("info", "source", token + " second"))),
@@ -367,15 +367,15 @@ class CheckStatusLogsTest {
 
     @Test
     void zero_max_log_events_skips_the_logs_and_the_file(WireMockRuntimeInfo wiremock) throws Exception {
-        stubLight("running", "running", "succeeded");
-        stubGet(job("succeeded", attempt(0, "succeeded", event("info", "source", "a"))));
+        stubLightUpdatedAt(new String[] { "running", "running", "succeeded" }, new long[] { 1, 1, 1 });
+        stubGet(job("running", attempt(0, "running", event("info", "source", "a"))), job("succeeded", attempt(0, "succeeded", event("info", "source", "a"))));
 
         var task = checkStatus(wiremock).maxLogEvents(Property.ofValue(0)).build();
         var out = task.run(runContext(task));
 
         assertThat(out.getAirbyteLogs(), is(nullValue()));
         verify(0, postRequestedFor(urlPathEqualTo(ATTEMPT)));
-        verify(1, postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
+        verify(2, postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
     }
 
     @Test
@@ -402,5 +402,64 @@ class CheckStatusLogsTest {
         var thrown = assertThrows(IllegalArgumentException.class, () -> task.run(runContext(task)));
 
         assertThat(thrown.getMessage(), containsString("maxLogEvents"));
+    }
+
+    @Test
+    void too_large_max_log_events_is_rejected(WireMockRuntimeInfo wiremock) {
+        var task = checkStatus(wiremock).maxLogEvents(Property.ofValue(CheckStatus.MAX_LOG_EVENTS_LIMIT + 1)).build();
+
+        var thrown = assertThrows(IllegalArgumentException.class, () -> task.run(runContext(task)));
+
+        assertThat(thrown.getMessage(), containsString("between 0 and " + CheckStatus.MAX_LOG_EVENTS_LIMIT));
+    }
+
+    @Test
+    void zero_max_log_events_still_warns_about_a_failed_attempt(WireMockRuntimeInfo wiremock) throws Exception {
+        stubLightUpdatedAt(new String[] { "running", "running", "running", "succeeded" }, new long[] { 1, 1, 2, 2 });
+        stubGet(
+            job("running", attempt(0, "running", event("info", "source", "a"))),
+            job("running", attempt(0, "failed", event("info", "source", "a")), attempt(1, "running", event("info", "source", "b"))),
+            job("succeeded", attempt(0, "failed", event("info", "source", "a")), attempt(1, "succeeded", event("info", "source", "b")))
+        );
+
+        var task = checkStatus(wiremock).maxLogEvents(Property.ofValue(0)).build();
+        var out = task.run(runContext(task));
+
+        assertThat(out.getAirbyteLogs(), is(nullValue()));
+        assertThat(logsContaining("Previous attempt failed", 1).size(), is(1));
+        verify(0, postRequestedFor(urlPathEqualTo(ATTEMPT)));
+    }
+
+    @Test
+    void retries_the_discovery_after_a_failed_jobs_get(WireMockRuntimeInfo wiremock) throws Exception {
+        var token = IdUtils.create();
+        stubLightUpdatedAt(new String[] { "running", "running", "running", "running", "succeeded" }, new long[] { 1, 2, 2, 2, 2 });
+        var succeeded = job(
+            "succeeded", attempt(0, "failed", event("info", "source", token + " first")),
+            attempt(1, "running", event("info", "source", token + " second"))
+        );
+        stubFor(
+            post(urlPathMatching("/api/v1/jobs/get/?")).inScenario("get").whenScenarioStateIs(Scenario.STARTED).willSetStateTo("get-1")
+                .willReturn(okJson(job("running", attempt(0, "failed", event("info", "source", token + " first")))))
+        );
+        stubFor(
+            post(urlPathMatching("/api/v1/jobs/get/?")).inScenario("get").whenScenarioStateIs("get-1").willSetStateTo("get-2")
+                .willReturn(serverError().withBody("{\"errorId\":\"x\"}"))
+        );
+        stubFor(post(urlPathMatching("/api/v1/jobs/get/?")).inScenario("get").whenScenarioStateIs("get-2").willReturn(okJson(succeeded)));
+        stubFor(
+            post(urlPathEqualTo(ATTEMPT))
+                .willReturn(okJson(attempt(1, "running", event("info", "source", token + " second"))))
+        );
+
+        var task = checkStatus(wiremock).build();
+        var runContext = runContext(task);
+        var out = task.run(runContext);
+
+        assertThat(logsContaining("Previous attempt failed", 1).size(), is(1));
+        assertThat(
+            rows(runContext, out.getAirbyteLogs()).stream().map(LogRow::getMessage).toList(),
+            contains(token + " first", token + " second")
+        );
     }
 }

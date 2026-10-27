@@ -1,7 +1,6 @@
 package io.kestra.plugin.airbyte.endpoints;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.Instant;
 import java.util.Arrays;
@@ -25,24 +24,7 @@ import io.kestra.core.serializers.FileSerde;
 import io.kestra.plugin.airbyte.models.LogRow;
 
 /**
- * Pages through the logs of the task run, oldest first.
- * <p>
- * When the task run has an {@code airbyteLogs} output, the Airbyte log events are served ({@code origin} {@code airbyte}).
- * Otherwise the Kestra task run logs are served ({@code origin} {@code kestra}), which is the case for task runs that ended before
- * the output existed, ran without logs, or are not an Airbyte job.
- * <p>
- * Query parameters:
- * <ul>
- * <li>{@code level}: minimum level, default {@code INFO}.</li>
- * <li>{@code q}: case-insensitive substring of the message.</li>
- * <li>{@code attempt}: Airbyte attempt number. Airbyte logs only.</li>
- * <li>{@code source}: {@code platform}, {@code source}, {@code destination} or {@code orchestrator}, repeated or comma-separated. Airbyte logs only.</li>
- * <li>{@code page} (default 1) and {@code size} (default 50, max 500).</li>
- * </ul>
- * The endpoint SPI cannot answer with an HTTP 400, so an invalid {@code level}, {@code attempt} or {@code source} is ignored rather than rejected.
- * <p>
- * The context is scoped to the task run in the URL. Per-attempt failure lines live on the {@code attempt-N} sub task run,
- * which has no {@code airbyteLogs} output: call this endpoint on that task run id to get its Kestra logs.
+ * Pages through the Airbyte logs of the task run, falling back to the Kestra logs of Airbyte task runs without {@code airbyteLogs}. See the README for the query parameters.
  */
 @Plugin
 public class Logs implements PluginEndpoint {
@@ -65,14 +47,21 @@ public class Logs implements PluginEndpoint {
         if (stored.isPresent()) {
             var attempt = attempt(context.param("attempt"));
             var sources = sources(context);
-            var lines = read(stored.get()).stream()
-                .filter(row -> attempt == null || attempt.equals(row.getAttemptNumber()))
-                .filter(row -> sources.isEmpty() || sources.contains(row.getLogSource()))
-                .filter(row -> row.getLevel() != null && row.getLevel().toInt() >= level.toInt())
-                .filter(row -> matches(query, row.getMessage()))
-                .map(row -> new Line(row.getTimestamp(), row.getLevel(), row.getMessage(), row.getAttemptNumber(), row.label()))
-                .toList();
-            return PluginEndpointResponse.of(Response.of(ORIGIN_AIRBYTE, EndpointPage.of(context, lines)));
+            try (var input = stored.get()) {
+                var lines = FileSerde.readAll(input, LogRow.class).toStream()
+                    .filter(row -> attempt == null || attempt.equals(row.getAttemptNumber()))
+                    .filter(row -> sources.isEmpty() || sources.contains(row.getLogSource()))
+                    .filter(row -> row.getLevel() != null && row.getLevel().toInt() >= level.toInt())
+                    .filter(row -> matches(query, row.getMessage()))
+                    .map(row -> new Line(row.getTimestamp(), row.getLevel(), row.getMessage(), row.getAttemptNumber(), row.label()));
+                return PluginEndpointResponse.of(Response.of(ORIGIN_AIRBYTE, EndpointPage.of(context, lines)));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+
+        if (!StoredOutput.isAirbyteTaskRun(context)) {
+            return PluginEndpointResponse.of(Response.of(ORIGIN_KESTRA, EndpointPage.of(context, List.<Line> of())));
         }
 
         var lines = context.logs().find(level).stream()
@@ -82,14 +71,6 @@ public class Logs implements PluginEndpoint {
             .map(log -> new Line(log.getTimestamp(), log.getLevel(), log.getMessage(), null, null))
             .toList();
         return PluginEndpointResponse.of(Response.of(ORIGIN_KESTRA, EndpointPage.of(context, lines)));
-    }
-
-    private static List<LogRow> read(InputStream input) {
-        try (input) {
-            return FileSerde.readAll(input, LogRow.class).collectList().blockOptional().orElseGet(List::of);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 
     private static Level level(String value) {

@@ -18,6 +18,7 @@
 Single-module plugin. Source packages under `io.kestra.plugin`:
 
 - `airbyte`
+- `airbyte.endpoints`
 
 Infrastructure dependencies (Docker Compose services):
 
@@ -47,7 +48,7 @@ Infrastructure dependencies (Docker Compose services):
 - `io.kestra.plugin.airbyte.cloud.jobs.Sync`
 - `io.kestra.plugin.airbyte.connections.CheckStatus`
 - `io.kestra.plugin.airbyte.connections.Sync`
-- `io.kestra.plugin.airbyte.connections.AirbyteLogs` (Airbyte log events forwarded to the task logs and stored as `airbyteLogs`, read by the `logs` endpoint)
+- `io.kestra.plugin.airbyte.endpoints.Attempts`, `io.kestra.plugin.airbyte.endpoints.Logs` and `io.kestra.plugin.airbyte.endpoints.Snapshot` (`PluginEndpoint`s serving the `attempts`, `airbyteLogs` and `connectionSnapshot` outputs to the UI artifact views)
 - `io.kestra.plugin.airbyte.ConnectionSnapshots` and `io.kestra.plugin.airbyte.StreamAssets` (connection snapshot and lineage assets, shared with the Cloud tasks)
 
 ### Project Structure

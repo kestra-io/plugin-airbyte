@@ -71,7 +71,7 @@ While `Sync` (with `wait`) or `CheckStatus` waits, the Airbyte job logs are forw
 
 Like `failures`, the logs are sanitized: stack trace frames are replaced by a single `... stack trace omitted` line (the exception class and message lines are kept, since they are what explains a connector failure) and Airbyte's internal `caller` details are dropped.
 
-The `logs` plugin endpoint pages through `airbyteLogs` (`origin: airbyte`), oldest first, with the filters `attempt`, `source` (repeated or comma-separated: `platform`, `source`, `destination`, `orchestrator`), `level` (minimum, default `INFO`), `q` (case-insensitive text) plus `page` and `size`. Without `airbyteLogs`, it serves the Kestra task run logs (`origin: kestra`, `level` and `q` only). Plugin endpoints cannot answer with an HTTP 400, so an invalid `attempt`, `source` or `level` is ignored.
+The `logs` plugin endpoint pages through `airbyteLogs` (`origin: airbyte`), oldest first, with the filters `attempt`, `source` (repeated or comma-separated: `platform`, `source`, `destination`, `orchestrator`), `level` (minimum, default `INFO`), `q` (case-insensitive text) plus `page` and `size`. `page` defaults to 1 and `size` to 50 (maximum 500). Without `airbyteLogs`, it serves the Kestra task run logs (`origin: kestra`, `level` and `q` only), which is how the failure lines of an `attempt-N` sub task run are read: call the endpoint on that task run. This fallback only applies to Airbyte task runs (the ones with a `jobId` or `job` output, and the `attempt-N` sub task runs); any other task run gets an empty `origin: kestra` page. Plugin endpoints cannot answer with an HTTP 400, so an invalid `attempt`, `source` or `level` is ignored.
 
 ### Connection snapshot, job link and assets
 
@@ -89,7 +89,7 @@ With assets enabled (Enterprise Edition only), each replicated stream that commi
 
 On Kestra 2.0 and later (open the dialog with the "Airbyte details" action of the node), `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset` get a topology card and a details dialog. The card shows the source and destination types, stream count, rows and bytes synced, attempts and status. The dialog shows a status header with a link to the job in Airbyte, an alert for failed jobs, the task settings (authentication shows the method only, never credentials), the job summary, grouped failure reasons, a per-stream table with emitted and committed rows, bytes and rejected records, and the connection summary. Airbyte Cloud jobs show job totals only.
 
-The UI only displays inline outputs and metrics: the contents of the `attempts`, `airbyteLogs` and `connectionSnapshot` files are not shown. Kestra 1.3.x ignores the UI. See [`ui/README.md`](ui/README.md) for local development.
+On Kestra 2.1 and later, the Logs, Attempts and Streams artifact views show the contents of the `airbyteLogs`, `attempts` and `connectionSnapshot` files through the plugin endpoints, which are only served on 2.1+. On earlier versions the UI only displays inline outputs and metrics. See [`ui/README.md`](ui/README.md) for local development.
 
 ## Documentation
 * Full documentation can be found under: [kestra.io/docs](https://kestra.io/docs)

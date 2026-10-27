@@ -1,7 +1,6 @@
 package io.kestra.plugin.airbyte.endpoints;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.util.List;
 
@@ -24,13 +23,13 @@ public class Attempts implements PluginEndpoint {
 
     @Override
     public PluginEndpointResponse handle(PluginEndpointContext context) {
-        var rows = StoredOutput.open(context, "attempts").map(Attempts::read).orElseGet(List::of);
-        return PluginEndpointResponse.of(EndpointPage.of(context, rows));
-    }
+        var stored = StoredOutput.open(context, "attempts");
+        if (stored.isEmpty()) {
+            return PluginEndpointResponse.of(EndpointPage.of(context, List.<AttemptRow> of()));
+        }
 
-    private static List<AttemptRow> read(InputStream input) {
-        try (input) {
-            return FileSerde.readAll(input, AttemptRow.class).collectList().blockOptional().orElseGet(List::of);
+        try (var input = stored.get()) {
+            return PluginEndpointResponse.of(EndpointPage.of(context, FileSerde.readAll(input, AttemptRow.class).toStream()));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

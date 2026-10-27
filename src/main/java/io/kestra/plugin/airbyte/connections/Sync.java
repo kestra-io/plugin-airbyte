@@ -21,6 +21,7 @@ import io.kestra.core.http.client.HttpClientException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
+import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.executions.metrics.Timer;
 import io.kestra.core.models.flows.State;
@@ -44,7 +45,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import io.kestra.core.models.annotations.PluginProperty;
 
 @SuperBuilder
 @ToString
@@ -232,7 +232,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
     @Schema(
         title = "Log frequency",
-        description = "Interval between fetches of the Airbyte logs of the running attempt while waiting, independent of `pollFrequency`. Defaults to 10 seconds. The remaining logs are always fetched once when the job ends"
+        description = """
+            Interval between fetches of the Airbyte logs of the running attempt, independent of `pollFrequency`. Defaults to 10 seconds. \
+            Airbyte returns the full log on every call, so a low value costs bandwidth on long jobs. \
+            The remaining logs are always fetched once when the job ends. Only applies when `wait` is enabled
+            """
     )
     @Builder.Default
     @PluginProperty(group = "execution")
@@ -240,7 +244,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
     @Schema(
         title = "Maximum log events",
-        description = "Maximum number of Airbyte log events forwarded to the Kestra logs and stored in the `airbyteLogs` file, counted from the start of the job. Defaults to 100000. Later events are dropped and a warning is logged. Set to `0` to disable the Airbyte logs. Only applies when `wait` is enabled"
+        description = """
+            Maximum number of Airbyte log events forwarded to the Kestra logs and stored in the `airbyteLogs` file, counted from the start of the job. \
+            Defaults to 100000 and must be between 0 and 1000000. Later events are dropped and a warning is logged. Set to `0` to disable the Airbyte logs. \
+            Only applies when `wait` is enabled
+            """
     )
     @Builder.Default
     @PluginProperty(group = "execution")
@@ -463,11 +471,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .addHeader("Accept-Encoding", "identity")
             .body(
                 HttpRequest.JsonRequestBody.builder()
-                    .content(Map.of(
-                        "configTypes", List.of("sync"),
-                        "configId", connectionId,
-                        "pagination", Map.of("pageSize", 5, "rowOffset", 0)
-                    ))
+                    .content(
+                        Map.of(
+                            "configTypes", List.of("sync"),
+                            "configId", connectionId,
+                            "pagination", Map.of("pageSize", 5, "rowOffset", 0)
+                        )
+                    )
                     .build()
             );
 
@@ -477,11 +487,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .map(JobList::getJobs)
             .orElseGet(List::of)
             .stream()
-            .filter(jobInfo -> jobInfo.getJob() != null
-                // Defense-in-depth: the request above already restricts to "sync" via `configTypes`, but a server
-                // that ignores/mis-applies that filter must not be able to get a reset/clear job silently adopted.
-                && jobInfo.getJob().getConfigType() == JobConfigType.SYNC
-                && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus()))
+            .filter(
+                jobInfo -> jobInfo.getJob() != null
+                    // Defense-in-depth: the request above already restricts to "sync" via `configTypes`, but a server
+                    // that ignores/mis-applies that filter must not be able to get a reset/clear job silently adopted.
+                    && jobInfo.getJob().getConfigType() == JobConfigType.SYNC
+                    && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus())
+            )
             .map(jobInfo -> jobInfo.getJob().getId())
             .max(Comparator.naturalOrder());
     }

@@ -1,5 +1,12 @@
 package io.kestra.plugin.airbyte.connections;
 
+import java.io.BufferedOutputStream;
+import java.io.Closeable;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -12,18 +19,19 @@ import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.event.Level;
 
+import io.kestra.core.serializers.FileSerde;
 import io.kestra.plugin.airbyte.models.Attempt;
 import io.kestra.plugin.airbyte.models.AttemptInfo;
 import io.kestra.plugin.airbyte.models.Event;
 import io.kestra.plugin.airbyte.models.LogRow;
 
 /**
- * Forwards the Airbyte job logs to the Kestra task logs and keeps them for the {@code airbyteLogs} file, each event exactly once.
+ * Forwards the Airbyte job logs to the Kestra task logs and writes them to the {@code airbyteLogs} file as they come, each event exactly once.
  * <p>
  * Airbyte returns the whole log of an attempt on every call and only ever appends to it, so the number of events already
  * handled is tracked per attempt number.
  */
-final class AirbyteLogs {
+final class AirbyteLogs implements Closeable {
     private static final String ANSI_ESCAPE = "\u001b[";
 
     /** Marks forwarded Airbyte lines so they can be told apart from the plugin's own task logs. */
@@ -37,21 +45,37 @@ final class AirbyteLogs {
     private final Level platformLevel;
     private final int maxEvents;
     private final Map<Integer, Integer> handled = new HashMap<>();
-    private final List<LogRow> rows = new ArrayList<>();
+    private final Path file;
+    private OutputStream output;
+    private int count;
     private boolean truncated;
 
-    AirbyteLogs(Logger logger, Level platformLevel, int maxEvents) {
+    AirbyteLogs(Logger logger, Level platformLevel, int maxEvents, Path file) {
         this.logger = logger;
         this.platformLevel = platformLevel;
         this.maxEvents = maxEvents;
+        this.file = file;
     }
 
     boolean isEnabled() {
         return maxEvents > 0;
     }
 
-    List<LogRow> rows() {
-        return List.copyOf(rows);
+    int count() {
+        return count;
+    }
+
+    Path file() {
+        return file;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (output != null) {
+            var closing = output;
+            output = null;
+            closing.close();
+        }
     }
 
     void consume(List<AttemptInfo> attempts) {
@@ -96,7 +120,7 @@ final class AirbyteLogs {
         if (row == null) {
             return;
         }
-        if (rows.size() >= maxEvents) {
+        if (count >= maxEvents) {
             if (!truncated) {
                 truncated = true;
                 logger.warn("Airbyte logs exceed `maxLogEvents` ({}): the following events are neither logged nor stored", maxEvents);
@@ -104,7 +128,15 @@ final class AirbyteLogs {
             return;
         }
 
-        rows.add(row);
+        try {
+            if (output == null) {
+                output = new BufferedOutputStream(Files.newOutputStream(file));
+            }
+            FileSerde.write(output, row);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        count++;
         log(row);
     }
 

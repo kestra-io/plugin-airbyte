@@ -157,6 +157,7 @@ class JobOutputsTest {
 
         var taskRuns = runContext.dynamicWorkerResults().stream().map(result -> result.getTaskRun()).toList();
         assertThat(taskRuns.stream().map(taskRun -> taskRun.getTaskId()).toList(), contains("attempt-0", "attempt-1"));
+        assertThat(taskRuns.stream().allMatch(taskRun -> Long.valueOf(71L).equals(taskRun.getOutputs().get("jobId"))), is(true));
         assertThat(taskRuns.stream().map(taskRun -> taskRun.getState().getCurrent()).toList(), contains(State.Type.FAILED, State.Type.SUCCESS));
 
         var metricNames = runContext.metrics().stream().map(metric -> metric.getName()).toList();
