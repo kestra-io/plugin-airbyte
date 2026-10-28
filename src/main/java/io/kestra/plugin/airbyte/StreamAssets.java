@@ -62,12 +62,7 @@ public final class StreamAssets {
         return committed;
     }
 
-    /**
-     * Airbyte OSS reports the per-stream stats of a database source without {@code streamNamespace}, while the catalog stream carries one.
-     * An exact (name, namespace) match always wins; otherwise the stats of the same name without a namespace are used, but only when that
-     * name is unique among the selected catalog streams. With the same name in several namespaces the stats cannot be attributed, so the
-     * stream is skipped rather than guessed.
-     */
+    /** Exact (name, namespace) match, else the namespace-less stats Airbyte OSS reports for database sources when the name is unique. */
     private static Committed counts(Map<StreamDescriptor, Committed> committed, StreamDescriptor stream, boolean uniqueName) {
         var exact = committed.get(stream);
         if (exact != null || !uniqueName) {
@@ -80,8 +75,10 @@ public final class StreamAssets {
     }
 
     /**
-     * @param committed per-stream committed counts of the job, empty when Airbyte reports none
-     * @param jobSucceeded whether the job ended {@code SUCCEEDED}; without per-stream counts this is the only signal that data landed
+     * @param committed per-stream committed counts of the job's successful attempts (rows committed by an earlier failed attempt are not
+     *        included, like in {@code metadata}), empty when Airbyte reports none
+     * @param jobSucceeded whether the job ended {@code SUCCEEDED}: only then are streams with 0 committed records emitted, and without
+     *        per-stream counts this is the only signal that data landed
      */
     public static List<Planned> plan(
         ConnectionSnapshot snapshot,
@@ -106,14 +103,7 @@ public final class StreamAssets {
         var selectedPerName = selected.stream().collect(Collectors.groupingBy(s -> s.getStream().getName(), Collectors.counting()));
 
         var planned = new ArrayList<Planned>();
-        for (var connectionStream : connection.getSyncCatalog().getStreams()) {
-            if (
-                connectionStream.getStream() == null || connectionStream.getStream().getName() == null
-                    || connectionStream.getConfig() == null || !Boolean.TRUE.equals(connectionStream.getConfig().getSelected())
-            ) {
-                continue;
-            }
-
+        for (var connectionStream : selected) {
             var stream = connectionStream.getStream();
             var counts = counts(committed, stream, selectedPerName.getOrDefault(stream.getName(), 0L) == 1);
             // A succeeded job refreshes a stream even when nothing new arrived
@@ -221,15 +211,27 @@ public final class StreamAssets {
     static String assetId(ConnectionSnapshot snapshot, ConnectionStream stream) {
         var connection = snapshot.getConnection();
         var table = tableName(connection, stream);
-        var location = snapshot.getDestinationLocation();
-        var schema = schema(snapshot, stream);
-        if (location != null && (location.schemaless() || schema != null)) {
-            return sanitize(database(snapshot, stream), schema, table);
-        }
-        return sanitize(connection.getDestinationId(), namespace(connection, stream.getStream()), table);
+        var namespace = namespace(connection, stream.getStream());
+        var id = tableId(snapshot.getDestinationLocation(), namespace, table);
+        return id != null ? id : sanitize(connection.getDestinationId(), namespace, table);
     }
 
-    // MySQL and ClickHouse have no schema level: the Airbyte namespace is the database
+    /**
+     * Id of a table at a destination or source location, the same as the JDBC, dbt and Fivetran plugins give it. MySQL and ClickHouse have
+     * no schema level: the namespace is the database. {@code null} when the location is unknown or no schema can be determined.
+     */
+    private static String tableId(ConnectorLocation location, String namespace, String table) {
+        if (location == null) {
+            return null;
+        }
+        if (location.schemaless()) {
+            return sanitize(namespace != null ? namespace : location.database(), table);
+        }
+        var schema = namespace != null ? namespace : location.schema();
+        return schema == null ? null : sanitize(location.database(), schema, table);
+    }
+
+    // Same rules as tableId, for the asset metadata
     private static String database(ConnectionSnapshot snapshot, ConnectionStream stream) {
         var location = snapshot.getDestinationLocation();
         if (location == null) {
@@ -304,22 +306,11 @@ public final class StreamAssets {
     // A database source is the same table the JDBC, dbt and Fivetran tasks emit; any other source stays an External asset
     private static AssetIdentifier sourceIdentifier(ConnectionSnapshot snapshot, StreamDescriptor stream) {
         var namespace = blankToNull(stream.getNamespace());
-        var location = snapshot.getSourceLocation();
-        if (location != null) {
-            // MySQL and ClickHouse have no schema level: the stream namespace is the database
-            var id = location.schemaless()
-                ? sanitize(namespace != null ? namespace : location.database(), stream.getName())
-                : sourceTableId(location, namespace, stream.getName());
-            if (id != null) {
-                return new AssetIdentifier(null, null, id, TABLE_ASSET_TYPE);
-            }
+        var id = tableId(snapshot.getSourceLocation(), namespace, stream.getName());
+        if (id != null) {
+            return new AssetIdentifier(null, null, id, TABLE_ASSET_TYPE);
         }
         return new AssetIdentifier(null, null, sanitize(snapshot.getConnection().getSourceId(), namespace, stream.getName()), External.ASSET_TYPE);
-    }
-
-    private static String sourceTableId(ConnectorLocation location, String namespace, String stream) {
-        var schema = namespace != null ? namespace : location.schema();
-        return schema == null ? null : sanitize(location.database(), schema, stream);
     }
 
     private static String customNamespace(String format, String sourceNamespace) {

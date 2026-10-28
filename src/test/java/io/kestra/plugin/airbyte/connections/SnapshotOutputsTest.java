@@ -25,6 +25,7 @@ import io.kestra.core.models.tasks.RunnableTaskException;
 import io.kestra.core.queues.DispatchQueueInterface;
 import io.kestra.core.runners.AssetEmit;
 import io.kestra.core.runners.AssetEmitter;
+import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
@@ -226,17 +227,11 @@ class SnapshotOutputsTest {
         stubTrigger(101);
         stubJob(101, "succeeded");
 
-        var emitter = Mockito.mock(AssetEmitter.class);
-        var task = sync(wiremock).build();
-        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
-        Mockito.doReturn(emitter).when(runContext).assets();
-        var out = task.run(runContext);
+        var run = runSyncCollectingAssets(sync(wiremock));
 
-        var captor = ArgumentCaptor.forClass(AssetEmit.class);
-        Mockito.verify(emitter, Mockito.atLeastOnce()).emit(captor.capture());
-        assertThat(captor.getAllValues().getFirst().outputs().getFirst().getId(), is("analytics.public.customers"));
+        assertThat(run.emits().getFirst().outputs().getFirst().getId(), is("analytics.public.customers"));
 
-        try (var stream = runContext.storage().getFile(out.getConnectionSnapshot())) {
+        try (var stream = run.runContext().storage().getFile(run.output().getConnectionSnapshot())) {
             var file = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
             assertThat(file, not(containsString("analytics")));
             assertThat(file, not(containsString(SECRET_PASSWORD)));
@@ -259,22 +254,16 @@ class SnapshotOutputsTest {
         stubTrigger(103);
         stubJob(103, "succeeded");
 
-        var emitter = Mockito.mock(AssetEmitter.class);
-        var task = sync(wiremock).build();
-        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
-        Mockito.doReturn(emitter).when(runContext).assets();
-        var out = task.run(runContext);
+        var run = runSyncCollectingAssets(sync(wiremock));
 
-        var captor = ArgumentCaptor.forClass(AssetEmit.class);
-        Mockito.verify(emitter, Mockito.atLeastOnce()).emit(captor.capture());
-        var emits = captor.getAllValues();
+        var emits = run.emits();
         assertThat(emits.getFirst().inputs().getFirst().id(), is("shopdb.public.customers"));
         assertThat(emits.getFirst().inputs().getFirst().type(), is(StreamAssets.TABLE_ASSET_TYPE));
         // The 0-row stream of a succeeded job is emitted too
         assertThat(emits.size(), is(2));
         assertThat(emits.get(1).outputs().getFirst().getMetadata().get("recordsCommitted"), is(0L));
 
-        try (var stream = runContext.storage().getFile(out.getConnectionSnapshot())) {
+        try (var stream = run.runContext().storage().getFile(run.output().getConnectionSnapshot())) {
             var file = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
             assertThat(file, not(containsString("shopdb")));
             assertThat(file, not(containsString(SECRET_PASSWORD)));
@@ -315,16 +304,19 @@ class SnapshotOutputsTest {
         );
     }
 
-    private List<AssetEmit> runSyncCollectingAssets(Sync.SyncBuilder<?, ?> builder) throws Exception {
+    private record AssetRun(Sync.Output output, RunContext runContext, List<AssetEmit> emits) {
+    }
+
+    private AssetRun runSyncCollectingAssets(Sync.SyncBuilder<?, ?> builder) throws Exception {
         var emitter = Mockito.mock(AssetEmitter.class);
         var task = builder.build();
         var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
         Mockito.doReturn(emitter).when(runContext).assets();
-        task.run(runContext);
+        var output = task.run(runContext);
 
         var captor = ArgumentCaptor.forClass(AssetEmit.class);
         Mockito.verify(emitter, Mockito.atLeast(0)).emit(captor.capture());
-        return captor.getAllValues();
+        return new AssetRun(output, runContext, captor.getAllValues());
     }
 
     @Test
@@ -334,7 +326,7 @@ class SnapshotOutputsTest {
         stubTrigger(105);
         stubNamespaceLessJob(105, "sync", "succeeded", "succeeded", "");
 
-        var emits = runSyncCollectingAssets(sync(wiremock));
+        var emits = runSyncCollectingAssets(sync(wiremock)).emits();
 
         assertThat(emits.size(), is(2));
         var customers = emits.getFirst();
@@ -355,7 +347,7 @@ class SnapshotOutputsTest {
         stubTrigger(106);
         stubNamespaceLessJob(106, "refresh", "succeeded", "succeeded", "");
 
-        var emits = runSyncCollectingAssets(sync(wiremock));
+        var emits = runSyncCollectingAssets(sync(wiremock)).emits();
 
         assertThat(emits.size(), is(2));
         assertThat(emits.getFirst().outputs().getFirst().getMetadata().get("recordsCommitted"), is(3L));
@@ -391,16 +383,10 @@ class SnapshotOutputsTest {
                     """.formatted(SECRET_PASSWORD)))
         );
 
-        var emitter = Mockito.mock(AssetEmitter.class);
-        var task = sync(wiremock).build();
-        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
-        Mockito.doReturn(emitter).when(runContext).assets();
-        task.run(runContext);
+        var input = runSyncCollectingAssets(sync(wiremock)).emits().getFirst().inputs().getFirst();
 
-        var captor = ArgumentCaptor.forClass(AssetEmit.class);
-        Mockito.verify(emitter, Mockito.atLeastOnce()).emit(captor.capture());
-        assertThat(captor.getAllValues().getFirst().inputs().getFirst().id(), is("src-1.public.customers"));
-        assertThat(captor.getAllValues().getFirst().inputs().getFirst().type(), is(External.ASSET_TYPE));
+        assertThat(input.id(), is("src-1.public.customers"));
+        assertThat(input.type(), is(External.ASSET_TYPE));
     }
 
     @Test

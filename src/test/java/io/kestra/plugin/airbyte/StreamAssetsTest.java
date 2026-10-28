@@ -367,10 +367,12 @@ class StreamAssetsTest {
     void source_locations_are_read_per_connector_and_masked_values_ignored() {
         var config = Map.of("database", "shop", "project_id", "proj", "dataset_id", "ds", "password", "secret");
 
-        assertThat(ConnectorLocations.parse("Postgres", config).orElseThrow(), is(new ConnectorLocation("shop", null, false)));
-        assertThat(ConnectorLocations.parse("BigQuery", config).orElseThrow(), is(new ConnectorLocation("proj", "ds", false)));
-        assertThat(ConnectorLocations.parse("Stripe", config).isPresent(), is(false));
-        assertThat(ConnectorLocations.parse("MySQL", Map.of("database", "********")).isPresent(), is(false));
+        assertThat(ConnectorLocations.parseSource("Postgres", config).orElseThrow(), is(new ConnectorLocation("shop", null, false)));
+        assertThat(ConnectorLocations.parseSource("BigQuery", config).orElseThrow(), is(new ConnectorLocation("proj", "ds", false)));
+        assertThat(ConnectorLocations.parseSource("Stripe", config).isPresent(), is(false));
+        assertThat(ConnectorLocations.parseSource("MySQL", Map.of("database", "********")).isPresent(), is(false));
+        // Databricks is destination-only in Airbyte
+        assertThat(ConnectorLocations.parseSource("Databricks", Map.of("database", "shop", "schema", "public")).isPresent(), is(false));
     }
 
     @Test

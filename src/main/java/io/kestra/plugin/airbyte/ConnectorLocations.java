@@ -44,10 +44,6 @@ public final class ConnectorLocations {
         }
     }
 
-    public static Optional<ConnectorLocation> resolve(String connectorType, ConnectorConfigLocation config) {
-        return resolve(connectorType, config, false);
-    }
-
     private static Optional<ConnectorLocation> resolve(String connectorType, ConnectorConfigLocation config, boolean source) {
         if (config == null) {
             return Optional.empty();
