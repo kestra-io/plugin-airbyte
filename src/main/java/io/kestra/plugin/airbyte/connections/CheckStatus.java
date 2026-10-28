@@ -65,7 +65,7 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 
         Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`, and the `job.failures` output lists sanitized failure reasons: internal messages and stack traces are never kept.
 
-        When Kestra runs with assets enabled (Enterprise Edition), every replicated stream that committed records is emitted as a table asset, with the source stream as its input, but only when the task ends in SUCCESS or WARNING (Kestra drops the assets of a failed task run). Counts are the same per-stream figures as `metadata`, so a job that ended in WARNING emits no asset. The asset id is `<database>.<schema>.<table>` (`<project>.<dataset>.<table>` for BigQuery, `<database>.<table>` for MySQL and ClickHouse), read from the destination connector configuration so it matches the ids of the dbt, JDBC and Fivetran plugins for the same table. Segments are sanitized (other characters become `_`, 150 characters at most with a hash suffix) and case is not normalized, so a Snowflake table can differ in case. Only the location keys of Postgres, Redshift, MS SQL Server, Snowflake, Databricks, BigQuery, MySQL and ClickHouse destinations are read, and never stored. When the location cannot be resolved the id falls back to `<destinationId>.<namespace>.<table>` with the Airbyte destination ID. The destination ID, database, schema, source ID, source name and source type are in the asset metadata, and the source stream input keeps the source ID: `<sourceId>.<namespace>.<stream>`. If building or emitting an asset fails, `assets.assetFailureBehavior` applies: `FAIL` fails the task, `WARN` (the default) ends it in WARNING, `IGNORE` only logs at debug level
+        When Kestra runs with assets enabled (Enterprise Edition), every replicated stream that committed records is emitted as a table asset with the source stream as its input, only when the task ends in SUCCESS or WARNING. The asset id is `<database>.<schema>.<table>` read from the destination configuration, falling back to `<destinationId>.<namespace>.<table>`. If an asset fails, `assets.assetFailureBehavior` applies: `FAIL` fails the task, `WARN` (the default) ends it in WARNING, `IGNORE` only logs at debug level
         """
 )
 @Plugin(
@@ -367,18 +367,13 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         var metadata = syncMetadata(finalJobStatus);
 
         // Core drops assets of failed runs, and a clear or reset would give false lineage.
-        Optional<State.Type> assetState = Optional.empty();
-        IllegalStateException assetFailure = null;
+        var assets = StreamAssets.Outcome.NONE;
         if (snapshot != null && ASSET_JOB_TYPES.contains(job.getConfigType()) && (status == JobStatus.SUCCEEDED || partialSuccessAsWarning)) {
             var assetSnapshot = snapshot;
-            try {
-                assetState = StreamAssets.emit(
-                    runContext, this, assetSnapshot.getConnection().getConnectionId(),
-                    () -> StreamAssets.plan(assetSnapshot, StreamAssets.committed(metadata), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
-                );
-            } catch (IllegalStateException e) {
-                assetFailure = e;
-            }
+            assets = StreamAssets.emit(
+                runContext, this, assetSnapshot.getConnection().getConnectionId(),
+                () -> StreamAssets.plan(assetSnapshot, StreamAssets.committed(metadata), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
+            );
         }
 
         var output = Output.builder()
@@ -390,12 +385,12 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             .connection(connection)
             .connectionSnapshot(snapshotUri)
             .jobUrl(jobUrl)
-            .state(partialSuccessAsWarning ? State.Type.WARNING : assetState.orElse(null))
+            .state(partialSuccessAsWarning ? State.Type.WARNING : assets.state())
             .build();
 
         // Built first so a FAIL asset behavior does not drop the job outputs
-        if (assetFailure != null) {
-            throw new RunnableTaskException(assetFailure.getMessage(), assetFailure, output);
+        if (assets.failure() != null) {
+            throw new RunnableTaskException(assets.failure().getMessage(), assets.failure(), output);
         }
 
         if (status == JobStatus.SUCCEEDED) {

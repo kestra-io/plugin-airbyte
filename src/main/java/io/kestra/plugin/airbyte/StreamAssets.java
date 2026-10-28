@@ -6,7 +6,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -14,6 +13,7 @@ import java.util.stream.Stream;
 
 import io.kestra.core.models.assets.Asset;
 import io.kestra.core.models.assets.AssetIdentifier;
+import io.kestra.core.models.assets.AssetsDeclaration;
 import io.kestra.core.models.assets.Custom;
 import io.kestra.core.models.assets.External;
 import io.kestra.core.models.flows.State;
@@ -99,16 +99,22 @@ public final class StreamAssets {
     }
 
     /**
-     * Builds and emits the assets, applying {@code assets.assetFailureBehavior} since core never routes an exception thrown by
-     * {@code run()} through it. An unsupported emitter (OSS) is skipped silently.
-     *
-     * @return {@code WARNING} when an asset failed under {@code WARN}, so the task can end in that state
-     * @throws IllegalStateException when an asset failed under {@code FAIL}
+     * Result of {@link #emit}: the task is expected to end in {@code state} when not null, and to fail with {@code failure} when
+     * not null (only under the {@code FAIL} behavior).
      */
-    public static Optional<State.Type> emit(RunContext runContext, Task task, String connectionId, Supplier<List<Planned>> planner) {
-        // Core skips asset processing entirely without a declaration, so do the same
-        if (task.getAssets() == null) {
-            return Optional.empty();
+    public record Outcome(State.Type state, Exception failure) {
+        public static final Outcome NONE = new Outcome(null, null);
+    }
+
+    /**
+     * Builds and emits the assets, applying {@code assets.assetFailureBehavior} since core never routes an exception thrown by
+     * {@code run()} through it. An unsupported emitter (OSS) is skipped silently. Nothing is built unless {@code assets.enableAuto}
+     * is on, as the emitter drops the assets otherwise.
+     */
+    public static Outcome emit(RunContext runContext, Task task, String connectionId, Supplier<List<Planned>> planner) {
+        // Core skips asset processing entirely without a declaration or without enableAuto, so do the same
+        if (task.getAssets() == null || !autoEnabled(runContext, task.getAssets())) {
+            return Outcome.NONE;
         }
         var failure = new Failure(runContext, task, connectionId);
         List<Planned> planned;
@@ -116,7 +122,7 @@ public final class StreamAssets {
             planned = planner.get();
         } catch (Exception e) {
             failure.record(null, e);
-            return failure.warned ? Optional.of(State.Type.WARNING) : Optional.empty();
+            return failure.outcome();
         }
 
         for (var asset : planned) {
@@ -128,9 +134,21 @@ public final class StreamAssets {
                 break;
             } catch (Exception e) {
                 failure.record(asset.output().getId(), e);
+                if (failure.failure != null) {
+                    break;
+                }
             }
         }
-        return failure.warned ? Optional.of(State.Type.WARNING) : Optional.empty();
+        return failure.outcome();
+    }
+
+    private static boolean autoEnabled(RunContext runContext, AssetsDeclaration declaration) {
+        try {
+            return runContext.render(declaration.getEnableAuto()).as(Boolean.class).orElse(false);
+        } catch (Exception e) {
+            runContext.logger().warn("Unable to render assets.enableAuto, skipping assets: {}", e.getMessage());
+            return false;
+        }
     }
 
     private static final class Failure {
@@ -138,6 +156,7 @@ public final class StreamAssets {
         private final Task task;
         private final String connectionId;
         private boolean warned;
+        private IllegalStateException failure;
 
         private Failure(RunContext runContext, Task task, String connectionId) {
             this.runContext = runContext;
@@ -145,11 +164,15 @@ public final class StreamAssets {
             this.connectionId = connectionId;
         }
 
+        Outcome outcome() {
+            return new Outcome(warned ? State.Type.WARNING : null, failure);
+        }
+
         void record(String assetId, Exception cause) {
-            var what = assetId == null ? "build the assets" : "emit asset '" + assetId + "'";
-            var message = "Failed to " + what + " for connection " + connectionId + ": " + cause.getMessage();
+            var what = assetId == null ? "build the assets" : "emit asset '%s'".formatted(assetId);
+            var message = "Failed to %s for connection %s: %s".formatted(what, connectionId, cause.getMessage());
             switch (behavior()) {
-                case FAIL -> throw new IllegalStateException(
+                case FAIL -> failure = new IllegalStateException(
                     message + ". Set assets.assetFailureBehavior to WARN or IGNORE to not fail the task.", cause
                 );
                 case WARN -> {
@@ -160,14 +183,12 @@ public final class StreamAssets {
             }
         }
 
-        // Core falls back to WARN when the property cannot be rendered
         private AssetFailureBehavior behavior() {
             try {
-                var declaration = task.getAssets();
-                return declaration == null || declaration.getAssetFailureBehavior() == null
-                    ? AssetFailureBehavior.WARN
-                    : runContext.render(declaration.getAssetFailureBehavior()).as(AssetFailureBehavior.class).orElse(AssetFailureBehavior.WARN);
+                return runContext.render(task.getAssets().getAssetFailureBehavior()).as(AssetFailureBehavior.class).orElse(AssetFailureBehavior.WARN);
             } catch (Exception e) {
+                // Same fallback as core
+                runContext.logger().warn("Unable to render assetFailureBehavior, defaulting to WARN: {}", e.getMessage());
                 return AssetFailureBehavior.WARN;
             }
         }
@@ -233,7 +254,7 @@ public final class StreamAssets {
         if (id.length() <= MAX_ID_LENGTH) {
             return id;
         }
-        return id.substring(0, MAX_ID_LENGTH - 9) + "_" + String.format("%08x", id.hashCode());
+        return id.substring(0, MAX_ID_LENGTH - 9) + "_" + "%08x".formatted(id.hashCode());
     }
 
     private static Custom table(ConnectionSnapshot snapshot, ConnectionStream stream, Committed counts, Long jobId, String jobStatus) {

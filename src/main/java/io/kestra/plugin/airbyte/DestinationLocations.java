@@ -1,23 +1,23 @@
 package io.kestra.plugin.airbyte;
 
+import java.util.Locale;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 import io.kestra.core.serializers.JacksonMapper;
+import io.kestra.plugin.airbyte.models.DestinationConfigLocation;
 import io.kestra.plugin.airbyte.models.DestinationLocation;
 
 /**
- * Resolves the database and schema a destination writes to, so asset ids can match the ones of dbt, JDBC and Fivetran.
+ * Resolves the database and schema a destination writes to, so asset ids can line up with the ones of other plugins that use the same names.
  */
 public final class DestinationLocations {
-    private static final Pattern MASKED = Pattern.compile("\\*+");
-
     private DestinationLocations() {
     }
 
     /**
      * Never throws: an unreadable or unknown configuration only means asset ids fall back to the Airbyte destination ID.
      *
+     * @param connectorType the connector name, such as {@code Snowflake} on self-hosted or {@code snowflake} on Airbyte Cloud
      * @param configuration the raw connector configuration, a map or an SDK model
      */
     public static Optional<DestinationLocation> parse(String connectorType, Object configuration) {
@@ -31,33 +31,37 @@ public final class DestinationLocations {
         }
     }
 
-    public static Optional<DestinationLocation> resolve(String connectorType, DestinationConfigLocation config) {
-        if (config == null) {
+    private static Optional<DestinationLocation> resolve(String connectorType, DestinationConfigLocation config) {
+        if (config == null || connectorType == null) {
             return Optional.empty();
         }
 
-        var type = connectorType == null ? "" : connectorType.toLowerCase().replaceAll("[^a-z0-9]", "");
-        DestinationLocation location = null;
+        var type = connectorType.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        // Snowflake Cortex shares the name but is a vector store, not a warehouse with tables
+        if (type.contains("cortex")) {
+            return Optional.empty();
+        }
         if (type.contains("bigquery")) {
-            location = of(config.getProjectId(), config.getDatasetId(), false);
-        } else if (type.contains("mysql") || type.contains("clickhouse")) {
-            location = of(config.getDatabase(), null, true);
-        } else if (
+            return of(config.getProjectId(), config.getDatasetId(), false);
+        }
+        if (type.contains("mysql") || type.contains("clickhouse")) {
+            return of(config.getDatabase(), null, true);
+        }
+        if (
             type.contains("postgres") || type.contains("redshift") || type.contains("mssql") || type.contains("sqlserver")
                 || type.contains("snowflake") || type.contains("databricks")
         ) {
-            location = of(config.getDatabase(), config.getSchema(), false);
+            return of(config.getDatabase(), config.getSchema(), false);
         }
-        return Optional.ofNullable(location);
+        return Optional.empty();
     }
 
-    private static DestinationLocation of(String database, String schema, boolean schemaless) {
+    private static Optional<DestinationLocation> of(String database, String schema, boolean schemaless) {
         var usableDatabase = usable(database);
-        return usableDatabase == null ? null : new DestinationLocation(usableDatabase, usable(schema), schemaless);
+        return usableDatabase == null ? Optional.empty() : Optional.of(new DestinationLocation(usableDatabase, usable(schema), schemaless));
     }
 
-    // Airbyte masks secret fields with asterisks, which must never end up in an id
     private static String usable(String value) {
-        return value == null || value.isBlank() || MASKED.matcher(value.trim()).matches() ? null : value.trim();
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

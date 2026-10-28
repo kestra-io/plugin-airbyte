@@ -1,11 +1,7 @@
 package io.kestra.plugin.airbyte.models;
 
 /**
- * Where a destination writes its tables, read from the connector configuration. Never serialized: it only feeds asset ids.
- *
- * @param database database, or the project for BigQuery
- * @param schema default schema, or the dataset for BigQuery
- * @param schemaless whether the destination has no schema level, such as MySQL
+ * Where a destination writes its tables (the project and dataset for BigQuery, no schema for MySQL), only used to build asset ids and never serialized.
  */
 public record DestinationLocation(String database, String schema, boolean schemaless) {
 }
