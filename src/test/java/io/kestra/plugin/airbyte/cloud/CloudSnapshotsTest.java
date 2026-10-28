@@ -10,6 +10,8 @@ import com.airbyte.api.models.shared.ConnectionResponse;
 import com.airbyte.api.models.shared.ConnectionScheduleResponse;
 import com.airbyte.api.models.shared.ConnectionStatusEnum;
 import com.airbyte.api.models.shared.ConnectionSyncModeEnum;
+import com.airbyte.api.models.shared.DestinationConfiguration;
+import com.airbyte.api.models.shared.DestinationPostgres;
 import com.airbyte.api.models.shared.DestinationResponse;
 import com.airbyte.api.models.shared.NamespaceDefinitionEnum;
 import com.airbyte.api.models.shared.ScheduleTypeWithBasicEnum;
@@ -80,14 +82,14 @@ class CloudSnapshotsTest {
     }
 
     @Test
-    void maps_the_allow_listed_fields_and_never_reads_connector_configuration() throws Exception {
+    void maps_the_allow_listed_fields_and_only_reads_the_destination_location() throws Exception {
         var source = source();
         var destination = destination();
 
-        var snapshot = CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.SOURCE, null), source, destination);
+        var snapshot = CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.DESTINATION, null), source, destination);
 
         verify(source, never()).configuration();
-        verify(destination, never()).configuration();
+        verify(destination).configuration();
 
         var summary = ConnectionSummary.from(snapshot);
         assertThat(summary.getConnectionId(), is("conn-1"));
@@ -106,6 +108,28 @@ class CloudSnapshotsTest {
 
         var json = JacksonMapper.ofJson().writeValueAsString(snapshot);
         assertThat(json, not(containsString("configuration")));
+        assertThat(json, not(containsString("destinationLocation")));
+    }
+
+    @Test
+    void cloud_assets_use_the_real_destination_location() throws Exception {
+        var destination = destination();
+        when(destination.destinationType()).thenReturn("postgres");
+        when(destination.configuration()).thenReturn(
+            DestinationConfiguration.of(
+                DestinationPostgres.builder().host("db.example.com").database("analytics").schema("public").username("airbyte").password("s3cret").build()
+            )
+        );
+
+        var snapshot = CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.DESTINATION, null), source(), destination);
+        var planned = StreamAssets.plan(snapshot, Map.of(), 7L, "succeeded", true);
+
+        assertThat(planned.stream().map(asset -> asset.output().getId()).toList(), contains("analytics.public.raw_customers", "analytics.public.raw_orders"));
+        assertThat(planned.getFirst().output().getMetadata().get("destinationId"), is("dst-1"));
+
+        var json = JacksonMapper.ofJson().writeValueAsString(snapshot);
+        assertThat(json, not(containsString("s3cret")));
+        assertThat(json, not(containsString("analytics")));
     }
 
     @Test
@@ -121,6 +145,25 @@ class CloudSnapshotsTest {
             CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.CUSTOM_FORMAT, "landing"), source(), destination()), Map.of(), 7L, "succeeded", true
         );
         assertThat(custom.getFirst().output().getId(), is("dst-1.landing.raw_customers"));
+    }
+
+    @Test
+    void cloud_assets_ignore_the_destination_location_when_the_namespace_comes_from_the_source() {
+        var destination = destination();
+        when(destination.destinationType()).thenReturn("postgres");
+        when(destination.configuration()).thenReturn(
+            DestinationConfiguration.of(DestinationPostgres.builder().host("db.example.com").database("analytics").schema("public").username("airbyte").build())
+        );
+
+        var source = StreamAssets.plan(
+            CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.SOURCE, null), source(), destination), Map.of(), 7L, "succeeded", true
+        );
+        var customWithSourceNamespace = StreamAssets.plan(
+            CloudSnapshots.toSnapshot(connection(NamespaceDefinitionEnum.CUSTOM_FORMAT, "raw_${SOURCE_NAMESPACE}"), source(), destination), Map.of(), 7L, "succeeded", true
+        );
+
+        assertThat(source.stream().map(asset -> asset.output().getId()).toList(), contains("dst-1.raw_customers", "dst-1.raw_orders"));
+        assertThat(customWithSourceNamespace.getFirst().output().getId(), is("dst-1.raw_customers"));
     }
 
     @Test

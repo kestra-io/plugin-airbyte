@@ -2,9 +2,11 @@ package io.kestra.plugin.airbyte.connections;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.slf4j.event.Level;
 
@@ -12,10 +14,15 @@ import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 
 import io.kestra.core.junit.annotations.KestraTest;
+import io.kestra.core.models.assets.AssetsDeclaration;
 import io.kestra.core.models.executions.LogEntry;
+import io.kestra.core.models.flows.State;
 import io.kestra.core.models.property.Property;
+import io.kestra.core.models.tasks.AssetFailureBehavior;
 import io.kestra.core.models.tasks.RunnableTaskException;
 import io.kestra.core.queues.DispatchQueueInterface;
+import io.kestra.core.runners.AssetEmit;
+import io.kestra.core.runners.AssetEmitter;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
@@ -127,6 +134,7 @@ class SnapshotOutputsTest {
         return Sync.builder()
             .id(IdUtils.create())
             .type(Sync.class.getName())
+            .assets(new AssetsDeclaration(Property.ofValue(true), null, null, null))
             .url(Property.ofValue(wiremock.getHttpBaseUrl()))
             .token(Property.ofValue("token"))
             .connectionId(Property.ofValue(CONNECTION_ID));
@@ -192,6 +200,73 @@ class SnapshotOutputsTest {
         var failed = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
         assertThrows(RunnableTaskException.class, () -> task.run(failed));
         Mockito.verify(failed, Mockito.never()).assets();
+    }
+
+    private void stubPostgresDestination() {
+        stubFor(
+            post(urlPathMatching("/api/v1/destinations/get/?"))
+                .withRequestBody(matchingJsonPath("$.destinationId", equalTo("dst-1")))
+                .willReturn(okJson("""
+                    {
+                      "destinationId": "dst-1", "name": "warehouse", "destinationName": "Postgres", "destinationDefinitionId": "def-dst", "workspaceId": "ws-1",
+                      "connectionConfiguration": { "host": "%s", "database": "analytics", "schema": "public", "password": "%s" }
+                    }
+                    """.formatted(SECRET_HOST, SECRET_PASSWORD)))
+        );
+    }
+
+    @Test
+    void assets_use_the_destination_location_without_persisting_it(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubPostgresDestination();
+        stubTrigger(101);
+        stubJob(101, "succeeded");
+
+        var emitter = Mockito.mock(AssetEmitter.class);
+        var task = sync(wiremock).build();
+        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        Mockito.doReturn(emitter).when(runContext).assets();
+        var out = task.run(runContext);
+
+        var captor = ArgumentCaptor.forClass(AssetEmit.class);
+        Mockito.verify(emitter, Mockito.atLeastOnce()).emit(captor.capture());
+        assertThat(captor.getAllValues().getFirst().outputs().getFirst().getId(), is("analytics.public.customers"));
+
+        try (var stream = runContext.storage().getFile(out.getConnectionSnapshot())) {
+            var file = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(file, not(containsString("analytics")));
+            assertThat(file, not(containsString(SECRET_PASSWORD)));
+        }
+    }
+
+    @Test
+    void asset_failures_follow_the_asset_failure_behavior(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubTrigger(102);
+        stubJob(102, "succeeded");
+
+        var emitter = Mockito.mock(AssetEmitter.class);
+        Mockito.doThrow(new IllegalArgumentException("invalid asset")).when(emitter).emit(Mockito.any());
+
+        var warn = sync(wiremock).build();
+        var warnContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, warn, Map.of()));
+        Mockito.doReturn(emitter).when(warnContext).assets();
+        assertThat(warn.run(warnContext).finalState(), is(Optional.of(State.Type.WARNING)));
+
+        var ignore = sync(wiremock).assets(new AssetsDeclaration(Property.ofValue(true), null, null, Property.ofValue(AssetFailureBehavior.IGNORE))).build();
+        var ignoreContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, ignore, Map.of()));
+        Mockito.doReturn(emitter).when(ignoreContext).assets();
+        assertThat(ignore.run(ignoreContext).finalState(), is(Optional.empty()));
+
+        var fail = sync(wiremock).assets(new AssetsDeclaration(Property.ofValue(true), null, null, Property.ofValue(AssetFailureBehavior.FAIL))).build();
+        var failContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, fail, Map.of()));
+        Mockito.doReturn(emitter).when(failContext).assets();
+        var exception = assertThrows(RunnableTaskException.class, () -> fail.run(failContext));
+        assertThat(exception.getMessage(), containsString("assets.assetFailureBehavior"));
+        assertThat(exception.getOutput(), notNullValue());
+        var output = (Sync.Output) exception.getOutput();
+        assertThat(output.getJob(), notNullValue());
+        assertThat(output.getConnection(), notNullValue());
     }
 
     @Test

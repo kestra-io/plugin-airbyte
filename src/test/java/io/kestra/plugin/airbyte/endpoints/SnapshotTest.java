@@ -3,9 +3,9 @@ package io.kestra.plugin.airbyte.endpoints;
 import org.junit.jupiter.api.Test;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.containsString;
 
 class SnapshotTest {
     private static final String URI = "kestra:///ns/flow/executions/exec/tasks/sync/taskrun/snapshot.json";

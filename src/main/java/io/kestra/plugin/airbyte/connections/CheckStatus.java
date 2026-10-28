@@ -65,7 +65,7 @@ import static io.kestra.core.utils.Rethrow.throwSupplier;
 
         Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`, and the `job.failures` output lists sanitized failure reasons: internal messages and stack traces are never kept.
 
-        When Kestra runs with assets enabled (Enterprise Edition), every replicated stream that committed records is emitted as a table asset, with the source stream as its input, but only when the task ends in SUCCESS or WARNING (Kestra drops the assets of a failed task run). Counts are the same per-stream figures as `metadata`, so a job that ended in WARNING emits no asset. The asset id is `<destinationId>.<namespace>.<table>` and uses Airbyte's logical names, which can differ from the physical table name when the destination normalizes them
+        When Kestra runs with assets enabled (Enterprise Edition), every replicated stream that committed records is emitted as a table asset with the source stream as its input, only when the task ends in SUCCESS or WARNING. The asset id is `<database>.<schema>.<table>` read from the destination configuration, falling back to `<destinationId>.<namespace>.<table>`. If an asset fails, `assets.assetFailureBehavior` applies: `FAIL` fails the task, `WARN` (the default) ends it in WARNING, `IGNORE` only logs at debug level
         """
 )
 @Plugin(
@@ -367,10 +367,12 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         var metadata = syncMetadata(finalJobStatus);
 
         // Core drops assets of failed runs, and a clear or reset would give false lineage.
+        var assets = StreamAssets.Outcome.NONE;
         if (snapshot != null && ASSET_JOB_TYPES.contains(job.getConfigType()) && (status == JobStatus.SUCCEEDED || partialSuccessAsWarning)) {
-            StreamAssets.emit(
-                runContext,
-                StreamAssets.plan(snapshot, StreamAssets.committed(metadata), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
+            var assetSnapshot = snapshot;
+            assets = StreamAssets.emit(
+                runContext, this, assetSnapshot.getConnection().getConnectionId(),
+                () -> StreamAssets.plan(assetSnapshot, StreamAssets.committed(metadata), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
             );
         }
 
@@ -383,8 +385,13 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             .connection(connection)
             .connectionSnapshot(snapshotUri)
             .jobUrl(jobUrl)
-            .state(partialSuccessAsWarning ? State.Type.WARNING : null)
+            .state(partialSuccessAsWarning ? State.Type.WARNING : assets.state())
             .build();
+
+        // Built first so a FAIL asset behavior does not drop the job outputs
+        if (assets.failure() != null) {
+            throw new RunnableTaskException(assets.failure().getMessage(), assets.failure(), output);
+        }
 
         if (status == JobStatus.SUCCEEDED) {
             return output;

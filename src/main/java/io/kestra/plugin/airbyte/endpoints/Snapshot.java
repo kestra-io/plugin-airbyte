@@ -12,7 +12,6 @@ import io.kestra.core.plugins.endpoint.PluginEndpoint;
 import io.kestra.core.plugins.endpoint.PluginEndpointContext;
 import io.kestra.core.plugins.endpoint.PluginEndpointResponse;
 import io.kestra.core.serializers.JacksonMapper;
-import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionStream;
 

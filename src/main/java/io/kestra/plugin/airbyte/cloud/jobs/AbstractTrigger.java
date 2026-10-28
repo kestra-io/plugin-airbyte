@@ -23,12 +23,15 @@ import com.airbyte.api.models.shared.JobCreateRequest;
 import com.airbyte.api.models.shared.JobResponse;
 import com.airbyte.api.models.shared.JobStatusEnum;
 import com.airbyte.api.models.shared.JobTypeEnum;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
+import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.executions.metrics.Timer;
+import io.kestra.core.models.flows.State;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.RunnableTaskException;
@@ -47,7 +50,6 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 import static io.kestra.core.utils.Rethrow.throwSupplier;
-import io.kestra.core.models.annotations.PluginProperty;
 
 @SuperBuilder
 @ToString
@@ -151,7 +153,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         var snapshot = fetchSnapshot(runContext, rConnectionId);
 
         if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
-            return outputOf(runContext, createJob, snapshot);
+            return outputOf(runContext, createJob, snapshot, null);
         }
 
         GetJobRequest getJobRequest = new GetJobRequest(createJob.jobId);
@@ -184,14 +186,19 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
             .ifPresent(duration -> runContext.metric(Timer.of("duration", Duration.parse(duration))));
 
         var finalJob = Job.of(finalJobResponse);
+        var assets = StreamAssets.Outcome.NONE;
         if (emitsAssets() && snapshot.isPresent() && finalJob.status == JobStatusEnum.SUCCEEDED) {
-            StreamAssets.emit(
-                runContext,
-                StreamAssets.plan(snapshot.get(), Map.of(), finalJob.jobId, finalJob.status.value(), true)
+            assets = StreamAssets.emit(
+                runContext, this, rConnectionId,
+                () -> StreamAssets.plan(snapshot.get(), Map.of(), finalJob.jobId, finalJob.status.value(), true)
             );
         }
 
-        var output = outputOf(runContext, finalJob, snapshot);
+        var output = outputOf(runContext, finalJob, snapshot, assets.state());
+        // Built first so a FAIL asset behavior does not drop the job outputs
+        if (assets.failure() != null) {
+            throw new RunnableTaskException(assets.failure().getMessage(), assets.failure(), output);
+        }
         if (isFailure(finalJob.status)) {
             throw new RunnableTaskException(failureMessage(finalJob.jobId, finalJob.status, output.getJobUrl()), output);
         }
@@ -247,8 +254,8 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         }
     }
 
-    private Output outputOf(RunContext runContext, Job job, Optional<ConnectionSnapshot> snapshot) {
-        var builder = Output.builder().job(job);
+    private Output outputOf(RunContext runContext, Job job, Optional<ConnectionSnapshot> snapshot, State.Type state) {
+        var builder = Output.builder().job(job).state(state);
 
         snapshot.ifPresent(value ->
         {
@@ -296,6 +303,15 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
             description = "Link to the job in the Airbyte Cloud web app. `null` when the workspace could not be resolved"
         )
         private final String jobUrl;
+
+        @JsonIgnore
+        @Getter(AccessLevel.NONE)
+        private final State.Type state;
+
+        @Override
+        public Optional<State.Type> finalState() {
+            return Optional.ofNullable(state);
+        }
     }
 
     @Value

@@ -7,19 +7,25 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.Destination;
+import io.kestra.plugin.airbyte.models.DestinationLocation;
 import io.kestra.plugin.airbyte.models.Source;
 
 /**
- * Reads the connection, source and destination through the documented config API. The response models only declare non-secret
- * fields, so connector configurations cannot reach the snapshot.
+ * Reads the connection, source and destination through the documented config API. The snapshot models only declare non-secret
+ * fields, so connector configurations cannot reach the snapshot. Only the destination location keys are read from the destination
+ * configuration, into a field that is never serialized.
  */
 public final class ConnectionSnapshots {
+    private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
+
     private ConnectionSnapshots() {
     }
 
@@ -28,9 +34,14 @@ public final class ConnectionSnapshots {
             var baseUrl = task.baseUrl(runContext);
             var connection = post(task, runContext, baseUrl + "/api/v1/connections/get", Map.of("connectionId", connectionId), Connection.class);
             var source = post(task, runContext, baseUrl + "/api/v1/sources/get", Map.of("sourceId", connection.getSourceId()), Source.class);
-            var destination = post(task, runContext, baseUrl + "/api/v1/destinations/get", Map.of("destinationId", connection.getDestinationId()), Destination.class);
+            var destinationResponse = post(task, runContext, baseUrl + "/api/v1/destinations/get", Map.of("destinationId", connection.getDestinationId()), Map.class);
+            var destination = MAPPER.convertValue(destinationResponse, Destination.class);
 
-            return Optional.of(ConnectionSnapshot.builder().connection(connection).source(source).destination(destination).build());
+            return Optional.of(
+                ConnectionSnapshot.builder().connection(connection).source(source).destination(destination)
+                    .destinationLocation(location(runContext, destination, destinationResponse))
+                    .build()
+            );
         } catch (Exception e) {
             runContext.logger().warn(
                 "Unable to read the configuration of connection {}, continuing without connection snapshot, job link and assets: {}. Check that the credentials can read connections, sources and destinations",
@@ -38,6 +49,14 @@ public final class ConnectionSnapshots {
             );
             return Optional.empty();
         }
+    }
+
+    private static DestinationLocation location(RunContext runContext, Destination destination, Map<?, ?> destinationResponse) {
+        var location = DestinationLocations.parse(destination.getDestinationName(), destinationResponse.get("connectionConfiguration"));
+        if (location.isEmpty()) {
+            runContext.logger().debug("No destination location resolved for destination {}, asset ids fall back to the Airbyte destination ID", destination.getDestinationId());
+        }
+        return location.orElse(null);
     }
 
     public static URI store(RunContext runContext, ConnectionSnapshot snapshot) throws IOException {
