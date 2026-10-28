@@ -139,7 +139,7 @@ class SnapshotOutputsTest {
         return Sync.builder()
             .id(IdUtils.create())
             .type(Sync.class.getName())
-            .assets(new AssetsDeclaration(null, null, null, null))
+            .assets(new AssetsDeclaration(Property.ofValue(true), null, null, null))
             .url(Property.ofValue(wiremock.getHttpBaseUrl()))
             .token(Property.ofValue("token"))
             .connectionId(Property.ofValue(CONNECTION_ID));
@@ -403,17 +403,20 @@ class SnapshotOutputsTest {
         Mockito.doReturn(emitter).when(warnContext).assets();
         assertThat(warn.run(warnContext).finalState(), is(Optional.of(State.Type.WARNING)));
 
-        var ignore = sync(wiremock).assets(new AssetsDeclaration(null, null, null, Property.ofValue(AssetFailureBehavior.IGNORE))).build();
+        var ignore = sync(wiremock).assets(new AssetsDeclaration(Property.ofValue(true), null, null, Property.ofValue(AssetFailureBehavior.IGNORE))).build();
         var ignoreContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, ignore, Map.of()));
         Mockito.doReturn(emitter).when(ignoreContext).assets();
         assertThat(ignore.run(ignoreContext).finalState(), is(Optional.empty()));
 
-        var fail = sync(wiremock).assets(new AssetsDeclaration(null, null, null, Property.ofValue(AssetFailureBehavior.FAIL))).build();
+        var fail = sync(wiremock).assets(new AssetsDeclaration(Property.ofValue(true), null, null, Property.ofValue(AssetFailureBehavior.FAIL))).build();
         var failContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, fail, Map.of()));
         Mockito.doReturn(emitter).when(failContext).assets();
         var exception = assertThrows(RunnableTaskException.class, () -> fail.run(failContext));
         assertThat(exception.getMessage(), containsString("assets.assetFailureBehavior"));
         assertThat(exception.getOutput(), notNullValue());
+        var output = (Sync.Output) exception.getOutput();
+        assertThat(output.getJob(), notNullValue());
+        assertThat(output.getConnection(), notNullValue());
     }
 
     @Test

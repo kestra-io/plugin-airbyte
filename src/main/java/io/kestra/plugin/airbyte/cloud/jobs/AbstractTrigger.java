@@ -186,23 +186,18 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
             .ifPresent(duration -> runContext.metric(Timer.of("duration", Duration.parse(duration))));
 
         var finalJob = Job.of(finalJobResponse);
-        Optional<State.Type> assetState = Optional.empty();
-        IllegalStateException assetFailure = null;
+        var assets = StreamAssets.Outcome.NONE;
         if (emitsAssets() && snapshot.isPresent() && finalJob.status == JobStatusEnum.SUCCEEDED) {
-            try {
-                assetState = StreamAssets.emit(
-                    runContext, this, rConnectionId,
-                    () -> StreamAssets.plan(snapshot.get(), Map.of(), finalJob.jobId, finalJob.status.value(), true)
-                );
-            } catch (IllegalStateException e) {
-                assetFailure = e;
-            }
+            assets = StreamAssets.emit(
+                runContext, this, rConnectionId,
+                () -> StreamAssets.plan(snapshot.get(), Map.of(), finalJob.jobId, finalJob.status.value(), true)
+            );
         }
 
-        var output = outputOf(runContext, finalJob, snapshot, assetState.orElse(null));
+        var output = outputOf(runContext, finalJob, snapshot, assets.state());
         // Built first so a FAIL asset behavior does not drop the job outputs
-        if (assetFailure != null) {
-            throw new RunnableTaskException(assetFailure.getMessage(), assetFailure, output);
+        if (assets.failure() != null) {
+            throw new RunnableTaskException(assets.failure().getMessage(), assets.failure(), output);
         }
         if (isFailure(finalJob.status)) {
             throw new RunnableTaskException(failureMessage(finalJob.jobId, finalJob.status, output.getJobUrl()), output);

@@ -34,7 +34,6 @@ import io.kestra.plugin.airbyte.models.SyncMetadata;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
@@ -82,7 +81,7 @@ class StreamAssetsTest {
     private static Task task(AssetFailureBehavior behavior) throws IllegalVariableEvaluationException {
         var task = mock(Task.class);
         // A declaration without a behavior exercises the WARN default
-        when(task.getAssets()).thenReturn(new AssetsDeclaration(null, null, null, behavior == null ? null : Property.ofValue(behavior)));
+        when(task.getAssets()).thenReturn(new AssetsDeclaration(Property.ofValue(true), null, null, behavior == null ? null : Property.ofValue(behavior)));
         return task;
     }
 
@@ -92,6 +91,7 @@ class StreamAssetsTest {
         when(runContext.assets()).thenReturn(emitter);
         var property = mock(RunContextProperty.class);
         when(property.as(AssetFailureBehavior.class)).thenReturn(Optional.ofNullable(behavior));
+        when(property.as(Boolean.class)).thenReturn(Optional.of(true));
         when(runContext.render(any(Property.class))).thenReturn(property);
         return runContext;
     }
@@ -364,13 +364,12 @@ class StreamAssetsTest {
     }
 
     @Test
-    void source_locations_are_read_per_connector_and_masked_values_ignored() {
+    void source_locations_are_read_per_connector() {
         var config = Map.of("database", "shop", "project_id", "proj", "dataset_id", "ds", "password", "secret");
 
         assertThat(ConnectorLocations.parseSource("Postgres", config).orElseThrow(), is(new ConnectorLocation("shop", null, false)));
         assertThat(ConnectorLocations.parseSource("BigQuery", config).orElseThrow(), is(new ConnectorLocation("proj", "ds", false)));
         assertThat(ConnectorLocations.parseSource("Stripe", config).isPresent(), is(false));
-        assertThat(ConnectorLocations.parseSource("MySQL", Map.of("database", "********")).isPresent(), is(false));
         // Databricks is destination-only in Airbyte
         assertThat(ConnectorLocations.parseSource("Databricks", Map.of("database", "shop", "schema", "public")).isPresent(), is(false));
     }
@@ -400,10 +399,8 @@ class StreamAssetsTest {
 
     @Test
     void emit_sends_one_lineage_per_stream() throws Exception {
-        var runContext = mock(RunContext.class);
         var emitter = mock(AssetEmitter.class);
-        when(runContext.logger()).thenReturn(mock(Logger.class));
-        when(runContext.assets()).thenReturn(emitter);
+        var runContext = runContext(null, emitter, mock(Logger.class));
 
         var planned = StreamAssets.plan(
             snapshot("source", null, null, stream("customers", "public", null), stream("orders", "public", null)),
@@ -425,11 +422,9 @@ class StreamAssetsTest {
 
     @Test
     void emit_is_quiet_when_assets_are_not_supported() throws Exception {
-        var runContext = mock(RunContext.class);
         var emitter = mock(AssetEmitter.class);
         var logger = mock(Logger.class);
-        when(runContext.logger()).thenReturn(logger);
-        when(runContext.assets()).thenReturn(emitter);
+        var runContext = runContext(null, emitter, logger);
         doThrow(new UnsupportedOperationException()).when(emitter).emit(any());
 
         var planned = StreamAssets.plan(
@@ -438,7 +433,7 @@ class StreamAssetsTest {
         );
         var state = StreamAssets.emit(runContext, task(null), "conn-1", () -> planned);
 
-        assertThat(state.isPresent(), is(false));
+        assertThat(state, is(StreamAssets.Outcome.NONE));
         verify(emitter, times(1)).emit(any());
         verify(logger, never()).warn(anyString(), any(Object.class), any(Object.class));
     }
@@ -448,13 +443,11 @@ class StreamAssetsTest {
         var emitter = mock(AssetEmitter.class);
         doThrow(new IllegalArgumentException("invalid asset")).when(emitter).emit(any());
 
-        var exception = assertThrows(
-            IllegalStateException.class,
-            () -> StreamAssets.emit(runContext(AssetFailureBehavior.FAIL, emitter, mock(Logger.class)), task(AssetFailureBehavior.FAIL), "conn-1", StreamAssetsTest::oneAsset)
-        );
+        var outcome = StreamAssets.emit(runContext(AssetFailureBehavior.FAIL, emitter, mock(Logger.class)), task(AssetFailureBehavior.FAIL), "conn-1", StreamAssetsTest::oneAsset);
 
+        assertThat(outcome.state(), nullValue());
         assertThat(
-            exception.getMessage(),
+            outcome.failure().getMessage(),
             is(
                 "Failed to emit asset 'dst-1.public.customers' for connection conn-1: invalid asset. "
                     + "Set assets.assetFailureBehavior to WARN or IGNORE to not fail the task."
@@ -471,8 +464,8 @@ class StreamAssetsTest {
         var explicit = StreamAssets.emit(runContext(AssetFailureBehavior.WARN, emitter, logger), task(AssetFailureBehavior.WARN), "conn-1", StreamAssetsTest::oneAsset);
         var byDefault = StreamAssets.emit(runContext(null, emitter, logger), task(null), "conn-1", StreamAssetsTest::oneAsset);
 
-        assertThat(explicit, is(Optional.of(State.Type.WARNING)));
-        assertThat(byDefault, is(Optional.of(State.Type.WARNING)));
+        assertThat(explicit, is(new StreamAssets.Outcome(State.Type.WARNING, null)));
+        assertThat(byDefault, is(new StreamAssets.Outcome(State.Type.WARNING, null)));
         verify(logger, times(2)).warn(anyString());
     }
 
@@ -484,7 +477,7 @@ class StreamAssetsTest {
 
         var state = StreamAssets.emit(runContext(AssetFailureBehavior.IGNORE, emitter, logger), task(AssetFailureBehavior.IGNORE), "conn-1", StreamAssetsTest::oneAsset);
 
-        assertThat(state.isPresent(), is(false));
+        assertThat(state, is(StreamAssets.Outcome.NONE));
         verify(logger, never()).warn(anyString());
     }
 
@@ -496,12 +489,9 @@ class StreamAssetsTest {
             throw new IllegalStateException("boom");
         };
 
-        var exception = assertThrows(
-            IllegalStateException.class,
-            () -> StreamAssets.emit(runContext(AssetFailureBehavior.FAIL, emitter, mock(Logger.class)), task(AssetFailureBehavior.FAIL), "conn-1", failing)
-        );
+        var outcome = StreamAssets.emit(runContext(AssetFailureBehavior.FAIL, emitter, mock(Logger.class)), task(AssetFailureBehavior.FAIL), "conn-1", failing);
         assertThat(
-            exception.getMessage(),
+            outcome.failure().getMessage(),
             is(
                 "Failed to build the assets for connection conn-1: boom. "
                     + "Set assets.assetFailureBehavior to WARN or IGNORE to not fail the task."
@@ -509,7 +499,7 @@ class StreamAssetsTest {
         );
         assertThat(
             StreamAssets.emit(runContext(AssetFailureBehavior.WARN, emitter, mock(Logger.class)), task(AssetFailureBehavior.WARN), "conn-1", failing),
-            is(Optional.of(State.Type.WARNING))
+            is(new StreamAssets.Outcome(State.Type.WARNING, null))
         );
         verify(emitter, never()).emit(any());
     }
@@ -523,7 +513,26 @@ class StreamAssetsTest {
 
         var state = StreamAssets.emit(runContext(null, emitter, logger), mock(Task.class), "conn-1", planner);
 
-        assertThat(state.isPresent(), is(false));
+        assertThat(state, is(StreamAssets.Outcome.NONE));
+        verify(planner, never()).get();
+        verify(emitter, never()).emit(any());
+        verify(logger, never()).warn(anyString());
+    }
+
+    @Test
+    void emit_does_nothing_unless_enable_auto_is_on() throws Exception {
+        var emitter = mock(AssetEmitter.class);
+        var logger = mock(Logger.class);
+        var runContext = runContext(AssetFailureBehavior.FAIL, emitter, logger);
+        var property = mock(RunContextProperty.class);
+        when(property.as(Boolean.class)).thenReturn(Optional.of(false));
+        when(runContext.render(any(Property.class))).thenReturn(property);
+        var task = mock(Task.class);
+        when(task.getAssets()).thenReturn(new AssetsDeclaration(Property.ofValue(false), null, null, Property.ofValue(AssetFailureBehavior.FAIL)));
+        var planner = mock(Supplier.class);
+        when(planner.get()).thenThrow(new IllegalStateException("boom"));
+
+        assertThat(StreamAssets.emit(runContext, task, "conn-1", planner), is(StreamAssets.Outcome.NONE));
         verify(planner, never()).get();
         verify(emitter, never()).emit(any());
         verify(logger, never()).warn(anyString());
@@ -534,9 +543,15 @@ class StreamAssetsTest {
         var emitter = mock(AssetEmitter.class);
         doThrow(new IllegalArgumentException("invalid asset")).when(emitter).emit(any());
         var runContext = runContext(null, emitter, mock(Logger.class));
-        when(runContext.render(any(Property.class))).thenThrow(new IllegalStateException("bad"));
+        var enabled = mock(RunContextProperty.class);
+        when(enabled.as(Boolean.class)).thenReturn(Optional.of(true));
+        // enableAuto renders first, then only the behavior fails
+        when(runContext.render(any(Property.class))).thenReturn(enabled).thenThrow(new IllegalStateException("bad"));
 
-        assertThat(StreamAssets.emit(runContext, task(AssetFailureBehavior.FAIL), "conn-1", StreamAssetsTest::oneAsset), is(Optional.of(State.Type.WARNING)));
+        assertThat(
+            StreamAssets.emit(runContext, task(AssetFailureBehavior.FAIL), "conn-1", StreamAssetsTest::oneAsset),
+            is(new StreamAssets.Outcome(State.Type.WARNING, null))
+        );
     }
 
     @Test
@@ -639,21 +654,36 @@ class StreamAssetsTest {
     @Test
     void destination_locations_are_read_per_connector() {
         var config = Map.of("database", "analytics", "schema", "public", "project_id", "proj", "dataset_id", "ds", "password", "secret");
+        var warehouse = new ConnectorLocation("analytics", "public", false);
 
-        assertThat(ConnectorLocations.parse("Postgres", config).orElseThrow(), is(new ConnectorLocation("analytics", "public", false)));
-        assertThat(ConnectorLocations.parse("Snowflake", config).orElseThrow(), is(new ConnectorLocation("analytics", "public", false)));
-        assertThat(ConnectorLocations.parse("MS SQL Server", config).orElseThrow(), is(new ConnectorLocation("analytics", "public", false)));
-        assertThat(ConnectorLocations.parse("bigquery", config).orElseThrow(), is(new ConnectorLocation("proj", "ds", false)));
-        assertThat(ConnectorLocations.parse("MySQL", config).orElseThrow(), is(new ConnectorLocation("analytics", null, true)));
+        // Self-hosted destination names, then the Airbyte Cloud type strings
+        for (var type : List.of("Postgres", "Snowflake", "MS SQL Server", "Redshift", "Databricks Lakehouse", "postgres", "snowflake", "mssql", "redshift", "databricks")) {
+            assertThat(type, ConnectorLocations.parse(type, config).orElseThrow(), is(warehouse));
+        }
+        for (var type : List.of("BigQuery", "bigquery")) {
+            assertThat(type, ConnectorLocations.parse(type, config).orElseThrow(), is(new ConnectorLocation("proj", "ds", false)));
+        }
+        for (var type : List.of("MySQL", "ClickHouse", "mysql", "clickhouse")) {
+            assertThat(type, ConnectorLocations.parse(type, config).orElseThrow(), is(new ConnectorLocation("analytics", null, true)));
+        }
         assertThat(ConnectorLocations.parse("S3", config).isPresent(), is(false));
+        assertThat(ConnectorLocations.parse(null, config).isPresent(), is(false));
         assertThat(ConnectorLocations.parse("Postgres", null).isPresent(), is(false));
         assertThat(ConnectorLocations.parse("Postgres", "not a config").isPresent(), is(false));
     }
 
     @Test
-    void masked_location_values_are_ignored() {
-        assertThat(ConnectorLocations.parse("Postgres", Map.of("database", "**********", "schema", "public")).isPresent(), is(false));
-        assertThat(ConnectorLocations.parse("Postgres", Map.of("database", "analytics", "schema", "******")).orElseThrow().schema(), nullValue());
+    void snowflake_cortex_is_not_a_warehouse() {
+        var config = Map.of("database", "analytics", "schema", "public");
+
+        assertThat(ConnectorLocations.parse("Snowflake Cortex", config).isPresent(), is(false));
+        assertThat(ConnectorLocations.parse("snowflake-cortex", config).isPresent(), is(false));
+    }
+
+    @Test
+    void blank_location_values_are_ignored_and_trimmed() {
+        assertThat(ConnectorLocations.parse("Postgres", Map.of("database", " ", "schema", "public")).isPresent(), is(false));
+        assertThat(ConnectorLocations.parse("Postgres", Map.of("database", " analytics ", "schema", "")).orElseThrow(), is(new ConnectorLocation("analytics", null, false)));
     }
 
     @Test

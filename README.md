@@ -75,7 +75,7 @@ The `logs` plugin endpoint pages through `airbyteLogs` (`origin: airbyte`), olde
 
 ### Connection snapshot, job link and assets
 
-`Sync` and `CheckStatus` also return `connection` (source and destination connector types, workspace, stream count), `connectionSnapshot` (JSON file in internal storage) and `jobUrl` (link to the job logs in the Airbyte web app, built from `webappUrl`, which defaults to `url`). They come from Airbyte's config API, and connector configurations are never read. If the credentials cannot read connections, sources and destinations, the task logs a warning and these outputs stay `null`.
+`Sync` and `CheckStatus` also return `connection` (source and destination connector types, workspace, stream count), `connectionSnapshot` (JSON file in internal storage) and `jobUrl` (link to the job logs in the Airbyte web app, built from `webappUrl`, which defaults to `url`). They come from Airbyte's config API, and connector configurations are never stored or returned: only the destination and source location keys are read to build asset ids. If the credentials cannot read connections, sources and destinations, the task logs a warning and these outputs stay `null`.
 
 With `assets.enableAuto: true` (Enterprise Edition only; Kestra core applies this setting, so the plugin makes no extra Airbyte call for assets), replicated streams are emitted as `io.kestra.plugin.ee.assets.Table` assets, with the source stream as their input.
 
