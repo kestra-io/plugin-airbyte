@@ -1,5 +1,6 @@
 package io.kestra.plugin.airbyte.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -16,6 +17,12 @@ public class ConnectionSnapshot {
     Connection connection;
     Source source;
     Destination destination;
+
+    @JsonIgnore
+    ConnectorLocation destinationLocation;
+
+    @JsonIgnore
+    ConnectorLocation sourceLocation;
 
     /**
      * Airbyte OSS does not always return the workspace on the connection, but does on its source and destination.

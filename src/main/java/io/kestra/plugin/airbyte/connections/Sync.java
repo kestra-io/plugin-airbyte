@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import org.slf4j.Logger;
+import org.slf4j.event.Level;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
@@ -20,6 +21,7 @@ import io.kestra.core.http.client.HttpClientException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
+import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.executions.metrics.Timer;
 import io.kestra.core.models.flows.State;
@@ -43,7 +45,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import io.kestra.core.models.annotations.PluginProperty;
 
 @SuperBuilder
 @ToString
@@ -57,7 +58,7 @@ import io.kestra.core.models.annotations.PluginProperty;
 
         When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records.
 
-        The task also exposes the `connection` that ran the job, a `connectionSnapshot` file (connector configurations are never included) and a `jobUrl` to the job logs in the Airbyte web app. When Kestra runs with assets enabled (Enterprise Edition), each replicated stream that committed records is emitted as a table asset with the source stream as its input. Assets are emitted only when the task ends in SUCCESS or WARNING, because Kestra drops the assets of a failed task run, and their counts are the same per-stream figures as `metadata`, so a job that ended in WARNING emits no asset
+        The task also exposes the `connection` that ran the job, a `connectionSnapshot` file (connector configurations are never included) and a `jobUrl` to the job logs in the Airbyte web app. When Kestra runs with assets enabled (Enterprise Edition), each replicated stream that committed records is emitted as a table asset with the source stream as its input (also when the job SUCCEEDED with 0 records for a stream reported in its per-stream stats, with `recordsCommitted: 0`, and for every selected stream, without `recordsCommitted`, when there are no per-stream stats). Assets are emitted only when the task ends in SUCCESS or WARNING, because Kestra drops the assets of a failed task run, and their counts are the same per-stream figures as `metadata`, which only count successful attempts: a job that ended in WARNING emits no asset, and rows committed by a failed attempt before a successful retry are not counted. The asset id is `<database>.<schema>.<table>` read from the destination configuration, falling back to `<destinationId>.<namespace>.<table>`. The input of a database source is the source table, a `Table` asset with id `<database>.<schema>.<table>` read from the source configuration, following the dbt and Fivetran convention. The id has the same shape as the JDBC plugin's, which uses the connection's current database and schema when the statement does not name them, so they match when Airbyte's logical names equal the physical table names; the JDBC plugin folds unquoted names to the database's case while Airbyte ids keep case as is. API sources and unresolved locations keep an `External` input `<sourceId>.<namespace>.<stream>`. If an asset fails, `assets.assetFailureBehavior` applies: `FAIL` fails the task, `WARN` (the default) ends it in WARNING, `IGNORE` only logs at debug level
         """
 )
 @Plugin(
@@ -230,6 +231,43 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
     Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
 
     @Schema(
+        title = "Log frequency",
+        description = """
+            Interval between fetches of the Airbyte logs of the running attempt, independent of `pollFrequency`. Defaults to 10 seconds. \
+            Airbyte returns the full log on every call, so a low value costs bandwidth on long jobs. \
+            The remaining logs are always fetched once when the job ends. Only applies when `wait` is enabled
+            """
+    )
+    @Builder.Default
+    @PluginProperty(group = "execution")
+    Property<Duration> logFrequency = Property.ofValue(Duration.ofSeconds(10));
+
+    @Schema(
+        title = "Maximum log events",
+        description = """
+            Maximum number of Airbyte log events forwarded to the Kestra logs and stored in the `airbyteLogs` file, counted from the start of the job. \
+            Defaults to 100000 and must be between 0 and 1000000. Later events are dropped and a warning is logged. Set to `0` to disable the Airbyte logs. \
+            Only applies when `wait` is enabled
+            """
+    )
+    @Builder.Default
+    @PluginProperty(group = "execution")
+    Property<Integer> maxLogEvents = Property.ofValue(CheckStatus.DEFAULT_MAX_LOG_EVENTS);
+
+    @Schema(
+        title = "Platform log level",
+        description = """
+            Kestra log level for the Airbyte `platform` events that Airbyte reports at `info` level, such as stage transitions and workload scheduling. \
+            Defaults to `INFO`. Use `DEBUG` or `TRACE` to hide this noise at the default log level. \
+            `platform` warnings and errors, and the events of the source, destination and orchestrator, always keep their own level. \
+            The `airbyteLogs` file keeps the level reported by Airbyte. Only applies when `wait` is enabled
+            """
+    )
+    @Builder.Default
+    @PluginProperty(group = "advanced")
+    Property<Level> platformLogLevel = Property.ofValue(Level.INFO);
+
+    @Schema(
         title = "Behavior when a sync is already running",
         description = """
             Controls what happens when a sync is already running for this connection. A job that is pending, queued, running or incomplete counts as an active sync:
@@ -268,6 +306,11 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         Logger logger = runContext.logger();
         String rConnectionId = runContext.render(this.connectionId).as(String.class).orElseThrow();
         OnActiveSync policy = resolveOnActiveSyncPolicy(runContext);
+        var rWait = runContext.render(this.wait).as(Boolean.class).orElseThrow();
+        if (rWait) {
+            // Fail fast: once the job is triggered, a late validation error would leave it running with no jobId output
+            CheckStatus.renderMaxLogEvents(runContext, this.maxLogEvents);
+        }
 
         Optional<Long> activeJobId = findActiveSyncJob(runContext, rConnectionId);
         boolean adopted = activeJobId.isPresent();
@@ -304,7 +347,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
         var snapshot = ConnectionSnapshots.fetch(this, runContext, rConnectionId).orElse(null);
 
-        if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
+        if (!rWait) {
             return notWaitingOutput(runContext, jobId, adopted, snapshot);
         }
 
@@ -316,9 +359,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .token(getToken())
             .applicationCredentials(getApplicationCredentials())
             .pollFrequency(pollFrequency)
+            .logFrequency(logFrequency)
+            .maxLogEvents(maxLogEvents)
+            .platformLogLevel(platformLogLevel)
             .maxDuration(maxDuration)
             .onPartialSuccess(onPartialSuccess)
             .jobId(Property.ofValue(jobId.toString()))
+            .assets(getAssets())
             .build();
 
         try {
@@ -338,6 +385,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .adopted(adopted)
             .job(checkStatusOutput.getJob())
             .attempts(checkStatusOutput.getAttempts())
+            .airbyteLogs(checkStatusOutput.getAirbyteLogs())
             .metadata(checkStatusOutput.getMetadata())
             .connection(checkStatusOutput.getConnection())
             .connectionSnapshot(checkStatusOutput.getConnectionSnapshot())
@@ -429,11 +477,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .addHeader("Accept-Encoding", "identity")
             .body(
                 HttpRequest.JsonRequestBody.builder()
-                    .content(Map.of(
-                        "configTypes", List.of("sync"),
-                        "configId", connectionId,
-                        "pagination", Map.of("pageSize", 5, "rowOffset", 0)
-                    ))
+                    .content(
+                        Map.of(
+                            "configTypes", List.of("sync"),
+                            "configId", connectionId,
+                            "pagination", Map.of("pageSize", 5, "rowOffset", 0)
+                        )
+                    )
                     .build()
             );
 
@@ -443,11 +493,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             .map(JobList::getJobs)
             .orElseGet(List::of)
             .stream()
-            .filter(jobInfo -> jobInfo.getJob() != null
-                // Defense-in-depth: the request above already restricts to "sync" via `configTypes`, but a server
-                // that ignores/mis-applies that filter must not be able to get a reset/clear job silently adopted.
-                && jobInfo.getJob().getConfigType() == JobConfigType.SYNC
-                && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus()))
+            .filter(
+                jobInfo -> jobInfo.getJob() != null
+                    // Defense-in-depth: the request above already restricts to "sync" via `configTypes`, but a server
+                    // that ignores/mis-applies that filter must not be able to get a reset/clear job silently adopted.
+                    && jobInfo.getJob().getConfigType() == JobConfigType.SYNC
+                    && ACTIVE_JOB_STATUS.contains(jobInfo.getJob().getStatus())
+            )
             .map(jobInfo -> jobInfo.getJob().getId())
             .max(Comparator.naturalOrder());
     }
@@ -491,6 +543,13 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         )
         @PluginProperty(internalStorageURI = true)
         private final URI attempts;
+
+        @Schema(
+            title = "Airbyte logs file",
+            description = CheckStatus.AIRBYTE_LOGS_DESCRIPTION + ". Only available when `wait` is enabled"
+        )
+        @PluginProperty(internalStorageURI = true)
+        private final URI airbyteLogs;
 
         @Schema(
             title = "Sync metadata",

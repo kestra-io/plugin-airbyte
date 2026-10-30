@@ -6,27 +6,36 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import io.kestra.core.models.assets.Asset;
 import io.kestra.core.models.assets.AssetIdentifier;
+import io.kestra.core.models.assets.AssetsDeclaration;
 import io.kestra.core.models.assets.Custom;
 import io.kestra.core.models.assets.External;
+import io.kestra.core.models.flows.State;
+import io.kestra.core.models.tasks.AssetFailureBehavior;
+import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.AssetEmit;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionStream;
+import io.kestra.plugin.airbyte.models.ConnectorLocation;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
 import io.kestra.plugin.airbyte.models.SyncMetadata;
 
-/**
- * Lineage assets of a job: one {@code Table} per replicated stream, fed by the matching source stream.
- */
+/** Lineage assets of a job: one {@code Table} per replicated stream, fed by its source stream ({@code Table} for a database source, else {@code External}). */
 public final class StreamAssets {
     public static final String TABLE_ASSET_TYPE = "io.kestra.plugin.ee.assets.Table";
 
-    private static final String SOURCE_NAMESPACE_PLACEHOLDER = "${SOURCE_NAMESPACE}";
+    private static final int MAX_ID_LENGTH = 150;
+    private static final Pattern INVALID_ID_CHARS = Pattern.compile("[^a-zA-Z0-9_-]");
+    private static final Pattern LEADING_NON_ALPHANUMERIC = Pattern.compile("^[^a-zA-Z0-9]+");
+    public static final String SOURCE_NAMESPACE_PLACEHOLDER = "${SOURCE_NAMESPACE}";
 
     private StreamAssets() {
     }
@@ -42,7 +51,7 @@ public final class StreamAssets {
         if (metadata != null && metadata.getDestination() != null) {
             metadata.getDestination().forEach(
                 table -> committed.put(
-                    StreamDescriptor.builder().name(table.getName()).namespace(table.getNamespace()).build(),
+                    StreamDescriptor.builder().name(table.getName()).namespace(blankToNull(table.getNamespace())).build(),
                     new Committed(table.getRows(), table.getBytes())
                 )
             );
@@ -50,53 +59,147 @@ public final class StreamAssets {
         return committed;
     }
 
+    /** Exact (name, namespace) match, else the namespace-less stats Airbyte OSS reports for database sources when the name is unique. */
+    private static Committed counts(Map<StreamDescriptor, Committed> committed, StreamDescriptor stream, boolean uniqueName) {
+        var exact = committed.get(stream);
+        if (exact != null || !uniqueName) {
+            return exact;
+        }
+        return committed.get(StreamDescriptor.builder().name(stream.getName()).namespace(null).build());
+    }
+
     public record Planned(AssetIdentifier input, Custom output) {
     }
 
-    /**
-     * @param committed per-stream committed counts of the job, empty when Airbyte reports none
-     * @param jobSucceeded whether the job ended {@code SUCCEEDED}; without per-stream counts this is the only signal that data landed
-     */
+    /** Plans one asset per selected stream; {@code committed} holds successful-attempt counts only, 0-record streams need {@code jobSucceeded}. */
     public static List<Planned> plan(
         ConnectionSnapshot snapshot,
         Map<StreamDescriptor, Committed> committed,
         Long jobId,
         String jobStatus,
-        boolean jobSucceeded
-    ) {
+        boolean jobSucceeded) {
         var connection = snapshot.getConnection();
         if (connection.getDestinationId() == null || connection.getSyncCatalog() == null || connection.getSyncCatalog().getStreams() == null) {
             return List.of();
         }
 
-        var planned = new ArrayList<Planned>();
+        var selected = new ArrayList<ConnectionStream>();
         for (var connectionStream : connection.getSyncCatalog().getStreams()) {
-            if (connectionStream.getStream() == null || connectionStream.getStream().getName() == null
-                || connectionStream.getConfig() == null || !Boolean.TRUE.equals(connectionStream.getConfig().getSelected())) {
-                continue;
+            if (
+                connectionStream.getStream() != null && connectionStream.getStream().getName() != null
+                    && connectionStream.getConfig() != null && Boolean.TRUE.equals(connectionStream.getConfig().getSelected())
+            ) {
+                selected.add(connectionStream);
             }
+        }
+        var selectedPerName = selected.stream().collect(Collectors.groupingBy(s -> s.getStream().getName(), Collectors.counting()));
 
+        var planned = new ArrayList<Planned>();
+        for (var connectionStream : selected) {
             var stream = connectionStream.getStream();
-            var counts = committed.get(stream);
-            if (committed.isEmpty() ? !jobSucceeded : counts == null || counts.records() == null || counts.records() <= 0) {
+            var counts = counts(committed, stream, selectedPerName.getOrDefault(stream.getName(), 0L) == 1);
+            // A succeeded job refreshes a stream even when nothing new arrived
+            if (committed.isEmpty() ? !jobSucceeded : counts == null || counts.records() == null || (counts.records() <= 0 && !jobSucceeded)) {
                 continue;
             }
 
-            planned.add(new Planned(sourceIdentifier(connection, stream), table(snapshot, connectionStream, counts, jobId, jobStatus)));
+            planned.add(new Planned(sourceIdentifier(snapshot, stream), table(snapshot, connectionStream, counts, jobId, jobStatus)));
         }
         return planned;
     }
 
-    public static void emit(RunContext runContext, List<Planned> planned) {
+    /**
+     * Result of {@link #emit}: the task is expected to end in {@code state} when not null, and to fail with {@code failure} when
+     * not null (only under the {@code FAIL} behavior).
+     */
+    public record Outcome(State.Type state, Exception failure) {
+        public static final Outcome NONE = new Outcome(null, null);
+    }
+
+    /**
+     * Builds and emits the assets, applying {@code assets.assetFailureBehavior} since core never routes an exception thrown by
+     * {@code run()} through it. An unsupported emitter (OSS) is skipped silently. Nothing is built unless {@code assets.enableAuto}
+     * is on, as the emitter drops the assets otherwise.
+     */
+    public static Outcome emit(RunContext runContext, Task task, String connectionId, Supplier<List<Planned>> planner) {
+        // Core skips asset processing entirely without a declaration or without enableAuto, so do the same
+        if (task.getAssets() == null || !autoEnabled(runContext, task.getAssets())) {
+            return Outcome.NONE;
+        }
+        var failure = new Failure(runContext, task, connectionId);
+        List<Planned> planned;
+        try {
+            planned = planner.get();
+        } catch (Exception e) {
+            failure.record(null, e);
+            return failure.outcome();
+        }
+
         for (var asset : planned) {
             try {
                 runContext.assets().emit(new AssetEmit(List.of(asset.input()), List.<Asset> of(asset.output())));
                 runContext.logger().debug("Emitted asset '{}'", asset.output().getId());
             } catch (UnsupportedOperationException e) {
                 runContext.logger().debug("Asset emission is not supported in this edition, skipping");
-                return;
+                break;
             } catch (Exception e) {
-                runContext.logger().warn("Failed to emit asset '{}': {}", asset.output().getId(), e.getMessage());
+                failure.record(asset.output().getId(), e);
+                if (failure.failure != null) {
+                    break;
+                }
+            }
+        }
+        return failure.outcome();
+    }
+
+    private static boolean autoEnabled(RunContext runContext, AssetsDeclaration declaration) {
+        try {
+            return runContext.render(declaration.getEnableAuto()).as(Boolean.class).orElse(false);
+        } catch (Exception e) {
+            runContext.logger().warn("Unable to render assets.enableAuto, skipping assets: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private static final class Failure {
+        private final RunContext runContext;
+        private final Task task;
+        private final String connectionId;
+        private boolean warned;
+        private IllegalStateException failure;
+
+        private Failure(RunContext runContext, Task task, String connectionId) {
+            this.runContext = runContext;
+            this.task = task;
+            this.connectionId = connectionId;
+        }
+
+        Outcome outcome() {
+            return new Outcome(warned ? State.Type.WARNING : null, failure);
+        }
+
+        void record(String assetId, Exception cause) {
+            var what = assetId == null ? "build the assets" : "emit asset '%s'".formatted(assetId);
+            var message = "Failed to %s for connection %s: %s".formatted(what, connectionId, cause.getMessage());
+            switch (behavior()) {
+                case FAIL -> failure = new IllegalStateException(
+                    message + ". Set assets.assetFailureBehavior to WARN or IGNORE to not fail the task.", cause
+                );
+                case WARN -> {
+                    runContext.logger().warn(message);
+                    warned = true;
+                }
+                case IGNORE -> runContext.logger().debug(message);
+            }
+        }
+
+        private AssetFailureBehavior behavior() {
+            try {
+                return runContext.render(task.getAssets().getAssetFailureBehavior()).as(AssetFailureBehavior.class).orElse(AssetFailureBehavior.WARN);
+            } catch (Exception e) {
+                // Same fallback as core
+                runContext.logger().warn("Unable to render assetFailureBehavior, defaulting to WARN: {}", e.getMessage());
+                return AssetFailureBehavior.WARN;
             }
         }
     }
@@ -120,17 +223,69 @@ public final class StreamAssets {
 
     static String assetId(ConnectionSnapshot snapshot, ConnectionStream stream) {
         var connection = snapshot.getConnection();
-        return join(connection.getDestinationId(), namespace(connection, stream.getStream()), tableName(connection, stream));
+        var table = tableName(connection, stream);
+        var namespace = namespace(connection, stream.getStream());
+        var id = tableId(snapshot.getDestinationLocation(), namespace, table);
+        return id != null ? id : sanitize(connection.getDestinationId(), namespace, table);
+    }
+
+    /** Database and schema of a table at a location (the schema is null for MySQL/ClickHouse, whose database is the namespace), or null when unknown. */
+    private record TableLocation(String database, String schema) {
+        static TableLocation of(ConnectorLocation location, String namespace) {
+            if (location == null) {
+                return null;
+            }
+            if (location.schemaless()) {
+                return new TableLocation(namespace != null ? namespace : location.database(), null);
+            }
+            return new TableLocation(location.database(), namespace != null ? namespace : location.schema());
+        }
+
+        /** Null when a schema is expected but unknown. */
+        String id(boolean schemaless, String table) {
+            if (schemaless) {
+                return sanitize(database, table);
+            }
+            return schema == null ? null : sanitize(database, schema, table);
+        }
+    }
+
+    /** Id of a table at a location, shaped like the JDBC, dbt and Fivetran ids; null when the location or its schema is unknown. */
+    private static String tableId(ConnectorLocation location, String namespace, String table) {
+        var resolved = TableLocation.of(location, namespace);
+        return resolved == null ? null : resolved.id(location.schemaless(), table);
+    }
+
+    // Same rules as the Fivetran plugin so the same table gets the same id: allowed characters, alphanumeric start, 150 characters at most
+    static String sanitize(String... segments) {
+        var id = Stream.of(segments)
+            .filter(Objects::nonNull)
+            .map(segment -> INVALID_ID_CHARS.matcher(segment).replaceAll("_"))
+            .collect(Collectors.joining("."));
+        id = LEADING_NON_ALPHANUMERIC.matcher(id).replaceFirst("");
+        if (id.length() <= MAX_ID_LENGTH) {
+            return id;
+        }
+        return id.substring(0, MAX_ID_LENGTH - 9) + "_" + "%08x".formatted(id.hashCode());
     }
 
     private static Custom table(ConnectionSnapshot snapshot, ConnectionStream stream, Committed counts, Long jobId, String jobStatus) {
         var connection = snapshot.getConnection();
         var config = stream.getConfig();
         var table = tableName(connection, stream);
+        var source = snapshot.getSource();
+        var location = TableLocation.of(snapshot.getDestinationLocation(), namespace(connection, stream.getStream()));
 
         var metadata = new LinkedHashMap<String, Object>();
         put(metadata, "system", snapshot.getDestination() == null ? null : snapshot.getDestination().getDestinationName());
         put(metadata, "destinationName", snapshot.getDestination() == null ? null : snapshot.getDestination().getName());
+        put(metadata, "destinationId", connection.getDestinationId());
+        put(metadata, "database", location == null ? null : location.database());
+        put(metadata, "schema", location == null ? null : location.schema());
+        put(metadata, "name", table);
+        put(metadata, "sourceId", connection.getSourceId());
+        put(metadata, "sourceName", source == null ? null : source.getName());
+        put(metadata, "sourceType", source == null ? null : source.getSourceName());
         put(metadata, "connectionId", connection.getConnectionId());
         put(metadata, "stream", stream.getStream().getName());
         put(metadata, "syncMode", config.getSyncMode());
@@ -152,8 +307,14 @@ public final class StreamAssets {
             .build();
     }
 
-    private static AssetIdentifier sourceIdentifier(Connection connection, StreamDescriptor stream) {
-        return new AssetIdentifier(null, null, join(connection.getSourceId(), blankToNull(stream.getNamespace()), stream.getName()), External.ASSET_TYPE);
+    // A database source is the same table the JDBC, dbt and Fivetran tasks emit; any other source stays an External asset
+    private static AssetIdentifier sourceIdentifier(ConnectionSnapshot snapshot, StreamDescriptor stream) {
+        var namespace = blankToNull(stream.getNamespace());
+        var id = tableId(snapshot.getSourceLocation(), namespace, stream.getName());
+        if (id != null) {
+            return new AssetIdentifier(null, null, id, TABLE_ASSET_TYPE);
+        }
+        return new AssetIdentifier(null, null, sanitize(snapshot.getConnection().getSourceId(), namespace, stream.getName()), External.ASSET_TYPE);
     }
 
     private static String customNamespace(String format, String sourceNamespace) {
@@ -165,10 +326,6 @@ public final class StreamAssets {
         }
         var resolved = blankToNull(sourceNamespace);
         return resolved == null ? null : format.replace(SOURCE_NAMESPACE_PLACEHOLDER, resolved);
-    }
-
-    private static String join(String... segments) {
-        return String.join(".", Stream.of(segments).filter(Objects::nonNull).toList());
     }
 
     private static String blankToNull(String value) {

@@ -66,6 +66,9 @@ const { t } = useI18n({
             alertTitleShort: "Airbyte job {status}",
             runningHint: "The job summary appears when the sync finishes.",
             empty: "Run the flow to see the job summary.",
+            unsupported:
+                "This Kestra version can't load the job summary yet. Upgrade Kestra to see it.",
+            unavailable: "The job summary could not be loaded. Reopen this dialog to try again.",
         },
     },
 });
@@ -82,6 +85,7 @@ const {
     rowsSynced,
     bytesSynced,
     streams,
+    loadState,
 } = useSyncData(props as KnownSlotProps["topology-details"]);
 
 const task = computed(() => props.task as Record<string, any> | undefined);
@@ -269,6 +273,12 @@ const groupedFailures = computed(() => {
 
             <p v-if="!hasExecution" class="airbyte-note">{{ t("empty") }}</p>
             <p v-else-if="running" class="airbyte-note">{{ t("runningHint") }}</p>
+            <p v-else-if="loadState === 'unsupported'" class="airbyte-note">
+                {{ t("unsupported") }}
+            </p>
+            <p v-else-if="loadState === 'unusable' || loadState === 'error'" class="airbyte-note">
+                {{ t("unavailable") }}
+            </p>
             <p v-else-if="notWaited" class="airbyte-note">{{ t("notWaited") }}</p>
 
             <template v-if="hasJob">

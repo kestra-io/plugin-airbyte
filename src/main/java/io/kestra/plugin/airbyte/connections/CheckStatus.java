@@ -2,19 +2,22 @@ package io.kestra.plugin.airbyte.connections;
 
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
+import org.slf4j.event.Level;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
+import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
-import io.kestra.core.http.HttpResponse;
+import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
+import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.executions.metrics.Timer;
 import io.kestra.core.models.flows.State;
@@ -45,7 +48,6 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 import static io.kestra.core.utils.Rethrow.throwSupplier;
-import io.kestra.core.models.annotations.PluginProperty;
 
 @SuperBuilder
 @ToString
@@ -59,9 +61,11 @@ import io.kestra.core.models.annotations.PluginProperty;
 
         When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records.
 
+        Airbyte's job logs are forwarded to the task logs while waiting, prefixed with `[Airbyte]` and their source (`[Airbyte][source]`, `[Airbyte][destination]`, `[Airbyte][orchestrator]`, `[Airbyte][platform]`), and returned in the `airbyteLogs` file. See `logFrequency`, `maxLogEvents` and `platformLogLevel`.
+
         Each Airbyte attempt is also recorded as a sub task run named `attempt-<n>`, and the `job.failures` output lists sanitized failure reasons: internal messages and stack traces are never kept.
 
-        When Kestra runs with assets enabled (Enterprise Edition), every replicated stream that committed records is emitted as a table asset, with the source stream as its input, but only when the task ends in SUCCESS or WARNING (Kestra drops the assets of a failed task run). Counts are the same per-stream figures as `metadata`, so a job that ended in WARNING emits no asset. The asset id is `<destinationId>.<namespace>.<table>` and uses Airbyte's logical names, which can differ from the physical table name when the destination normalizes them
+        When Kestra runs with assets enabled (Enterprise Edition), every replicated stream that committed records is emitted as a table asset with the source stream as its input, only when the task ends in SUCCESS or WARNING (Kestra drops the assets of a failed task run). When the job SUCCEEDED, streams reported in the per-stream stats with 0 committed records are emitted too, with `recordsCommitted: 0` (every selected stream, without `recordsCommitted`, when there are no per-stream stats), so the table reflects the latest successful sync. Counts are the same per-stream figures as `metadata`, which only count successful attempts: a job that ended in WARNING emits no asset, and rows committed by a failed attempt before a successful retry are not counted. The asset id is `<database>.<schema>.<table>` read from the destination configuration, falling back to `<destinationId>.<namespace>.<table>`. The input of a Postgres, Redshift, MS SQL Server, Snowflake, BigQuery, MySQL or ClickHouse source (Databricks is destination-only) is the source table, a `Table` asset with its id read the same way from the source configuration; API sources and unresolved locations keep an `External` input `<sourceId>.<namespace>.<stream>`. The id has the same shape as the JDBC plugin's, which uses the connection's current database and schema when the statement does not name them, so they match when Airbyte's logical names equal the physical table names; the JDBC plugin folds unquoted names to the database's case while Airbyte ids keep case as is. If an asset fails, `assets.assetFailureBehavior` applies: `FAIL` fails the task, `WARN` (the default) ends it in WARNING, `IGNORE` only logs at debug level
         """
 )
 @Plugin(
@@ -161,6 +165,15 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
     private static final Set<JobConfigType> ASSET_JOB_TYPES = EnumSet.of(JobConfigType.SYNC, JobConfigType.REFRESH);
 
+    static final int DEFAULT_MAX_LOG_EVENTS = 100_000;
+    static final int MAX_LOG_EVENTS_LIMIT = 1_000_000;
+
+    static final String AIRBYTE_LOGS_DESCRIPTION = """
+        Internal storage URI of an Ion file with the Airbyte log events of every attempt, one row per event: attempt number, timestamp, level, source and message. \
+        Stack trace frames and Airbyte's internal `caller` details are never kept. `null` when Airbyte returned no logs or `maxLogEvents` is `0`""";
+
+    private static final String JOBS_GET = "/api/v1/jobs/get/";
+
     private static final Set<JobStatus> ENDED_JOB_STATUS = EnumSet.of(
         JobStatus.FAILED,
         JobStatus.CANCELLED,
@@ -195,10 +208,6 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     @PluginProperty(group = "execution")
     private Property<OnPartialSuccess> onPartialSuccess = Property.ofValue(OnPartialSuccess.FAIL);
 
-    @Builder.Default
-    @Getter(AccessLevel.NONE)
-    private transient Map<Integer, Integer> loggedLine = new HashMap<>();
-
     @Schema(
         title = "Poll frequency",
         description = "Interval between Airbyte job status checks. Defaults to 1 second"
@@ -206,9 +215,56 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     @Builder.Default
     Property<Duration> pollFrequency = Property.ofValue(Duration.ofSeconds(1));
 
+    @Schema(
+        title = "Log frequency",
+        description = """
+            Interval between fetches of the Airbyte logs of the running attempt, independent of `pollFrequency`. Defaults to 10 seconds. \
+            Airbyte returns the full log on every call, so a low value costs bandwidth on long jobs. \
+            The remaining logs are always fetched once when the job ends.
+            """
+    )
+    @Builder.Default
+    @PluginProperty(group = "execution")
+    Property<Duration> logFrequency = Property.ofValue(Duration.ofSeconds(10));
+
+    @Schema(
+        title = "Maximum log events",
+        description = """
+            Maximum number of Airbyte log events forwarded to the Kestra logs and stored in the `airbyteLogs` file, counted from the start of the job. \
+            Defaults to 100000 and must be between 0 and 1000000. Later events are dropped and a warning is logged. Set to `0` to disable the Airbyte logs.
+            """
+    )
+    @Builder.Default
+    @PluginProperty(group = "execution")
+    Property<Integer> maxLogEvents = Property.ofValue(DEFAULT_MAX_LOG_EVENTS);
+
+    @Schema(
+        title = "Platform log level",
+        description = """
+            Kestra log level for the Airbyte `platform` events that Airbyte reports at `info` level, such as stage transitions and workload scheduling. \
+            Defaults to `INFO`. Use `DEBUG` or `TRACE` to hide this noise at the default log level. \
+            `platform` warnings and errors, and the events of the source, destination and orchestrator, always keep their own level. \
+            The `airbyteLogs` file keeps the level reported by Airbyte.
+            """
+    )
+    @Builder.Default
+    @PluginProperty(group = "advanced")
+    Property<Level> platformLogLevel = Property.ofValue(Level.INFO);
+
     @Override
     public CheckStatus.Output run(RunContext runContext) throws Exception {
         return run(runContext, null, true);
+    }
+
+    // Shared with Sync so an invalid value fails before a job is triggered
+    static int renderMaxLogEvents(RunContext runContext, Property<Integer> maxLogEvents) throws IllegalVariableEvaluationException {
+        var rMaxLogEvents = runContext.render(maxLogEvents).as(Integer.class).orElse(DEFAULT_MAX_LOG_EVENTS);
+        if (rMaxLogEvents < 0 || rMaxLogEvents > MAX_LOG_EVENTS_LIMIT) {
+            throw new IllegalArgumentException(
+                "`maxLogEvents` must be between 0 and " + MAX_LOG_EVENTS_LIMIT + ", but was " + rMaxLogEvents + ". Use 0 to disable the Airbyte logs"
+            );
+        }
+        return rMaxLogEvents;
     }
 
     CheckStatus.Output run(RunContext runContext, ConnectionSnapshot snapshot, boolean fetchSnapshotIfMissing) throws Exception {
@@ -216,31 +272,26 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
 
         var unknownStatusLogged = new AtomicBoolean(false);
 
-        // Init with 1 as when triggering sync, an attempt is automatically generated
-        AtomicInteger attemptCounter = new AtomicInteger(1);
-
         // Check rendered jobId provided is a long
         Long jobIdRendered = Long.parseLong(runContext.render(this.jobId).as(String.class).orElse(null));
-        String rUrl = runContext.render(getUrl()).as(String.class).orElseThrow();
 
-        // wait for end
-        JobInfo finalJobStatus = Await.until(
-            throwSupplier(() ->
-            {
-                HttpRequest.HttpRequestBuilder fetchJobRequest = HttpRequest.builder()
-                    .uri(URI.create(rUrl + "/api/v1/jobs/get/"))
-                    .method("POST")
-                    .body(
-                        HttpRequest.JsonRequestBody.builder()
-                            .content(Map.of("id", jobIdRendered))
-                            .build()
-                    );
+        var rMaxLogEvents = renderMaxLogEvents(runContext, this.maxLogEvents);
+        var rLogFrequency = runContext.render(this.logFrequency).as(Duration.class).orElse(Duration.ofSeconds(10));
+        var airbyteLogs = new AirbyteLogs(
+            logger,
+            runContext.render(this.platformLogLevel).as(Level.class).orElse(Level.INFO),
+            rMaxLogEvents,
+            runContext.workingDir().createTempFile(".ion")
+        );
+        var poller = new JobPoller(runContext, baseUrl(runContext), jobIdRendered, airbyteLogs, rLogFrequency);
 
-                HttpResponse<JobInfo> response = this.request(runContext, fetchJobRequest, JobInfo.class);
-
-                if (response.getBody() != null) {
-                    JobInfo jobStatus = response.getBody();
-                    sendLog(logger, jobStatus);
+        JobInfo finalJobStatus;
+        try {
+            // wait for end
+            var endedJobStatus = Await.until(
+                throwSupplier(() ->
+                {
+                    var jobStatus = poller.status();
 
                     if (jobStatus.getJob().getStatus() == null && unknownStatusLogged.compareAndSet(false, true)) {
                         logger.warn(
@@ -249,22 +300,22 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                         );
                     }
 
-                    // ended
                     if (ENDED_JOB_STATUS.contains(jobStatus.getJob().getStatus())) {
                         return jobStatus;
                     }
 
-                    // Handle case of failed attempt, Airbyte started a new attempt
-                    if (attempts(jobStatus).size() > attemptCounter.get()) {
-                        logger.warn("Previous attempt failed, creating a new sync attempt ...");
-                        attemptCounter.getAndIncrement();
-                    }
-                }
-                return null;
-            }),
-            runContext.render(this.pollFrequency).as(Duration.class).orElseThrow(),
-            runContext.render(this.maxDuration).as(Duration.class).orElseThrow()
-        );
+                    poller.followAttempts(jobStatus);
+                    poller.liveAttempt(jobStatus);
+                    return null;
+                }),
+                runContext.render(this.pollFrequency).as(Duration.class).orElseThrow(),
+                runContext.render(this.maxDuration).as(Duration.class).orElseThrow()
+            );
+
+            finalJobStatus = poller.finalStatus(endedJobStatus);
+        } finally {
+            airbyteLogs.close();
+        }
 
         var job = finalJobStatus.getJob();
         var status = job.getStatus();
@@ -282,6 +333,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         );
 
         var attemptsUri = JobReports.storeAttempts(runContext, attemptRows);
+        var airbyteLogsUri = airbyteLogs.count() == 0 ? null : JobReports.storeLogs(runContext, airbyteLogs.file());
         JobReports.emitAttemptTaskRuns(runContext, finalJobStatus, attemptRows);
         emitMetrics(runContext, finalJobStatus, summary);
 
@@ -315,10 +367,12 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         var metadata = syncMetadata(finalJobStatus);
 
         // Core drops assets of failed runs, and a clear or reset would give false lineage.
+        var assets = StreamAssets.Outcome.NONE;
         if (snapshot != null && ASSET_JOB_TYPES.contains(job.getConfigType()) && (status == JobStatus.SUCCEEDED || partialSuccessAsWarning)) {
-            StreamAssets.emit(
-                runContext,
-                StreamAssets.plan(snapshot, StreamAssets.committed(metadata), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
+            var assetSnapshot = snapshot;
+            assets = StreamAssets.emit(
+                runContext, this, assetSnapshot.getConnection().getConnectionId(),
+                () -> StreamAssets.plan(assetSnapshot, StreamAssets.committed(metadata), job.getId(), String.valueOf(status), status == JobStatus.SUCCEEDED)
             );
         }
 
@@ -326,12 +380,18 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             .finalJobStatus(String.valueOf(status))
             .job(summary)
             .attempts(attemptsUri)
+            .airbyteLogs(airbyteLogsUri)
             .metadata(metadata)
             .connection(connection)
             .connectionSnapshot(snapshotUri)
             .jobUrl(jobUrl)
-            .state(partialSuccessAsWarning ? State.Type.WARNING : null)
+            .state(partialSuccessAsWarning ? State.Type.WARNING : assets.state())
             .build();
+
+        // Built first so a FAIL asset behavior does not drop the job outputs
+        if (assets.failure() != null) {
+            throw new RunnableTaskException(assets.failure().getMessage(), assets.failure(), output);
+        }
 
         if (status == JobStatus.SUCCEEDED) {
             return output;
@@ -411,8 +471,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             .map(totals -> totals.rows)
             .filter(Objects::nonNull)
             .reduce(Long::sum);
-        var rowsSynced = committedRows.orElseGet(() ->
-            successfulAttempts.stream()
+        var rowsSynced = committedRows.orElseGet(
+            () -> successfulAttempts.stream()
                 .map(Attempt::getRecordsSynced)
                 .filter(Objects::nonNull)
                 .reduce(0L, Long::sum)
@@ -449,10 +509,6 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
             .toList();
     }
 
-    private static List<AttemptInfo> attempts(JobInfo jobInfo) {
-        return JobReports.attempts(jobInfo);
-    }
-
     private static final class Totals {
         Long rows;
         Long bytes;
@@ -463,32 +519,143 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     private record StreamKey(String name, String namespace) {
     }
 
-    private void sendLog(Logger logger, JobInfo job) {
-        int index = 0;
+    /**
+     * Polls the job status and streams the Airbyte logs. Status goes through the lightweight {@code jobs/get_light}, which
+     * carries no attempts or logs, with a sticky fallback to {@code jobs/get} on Airbyte versions that lack it. The logs of the
+     * running attempt are fetched on their own, at most once per {@code logFrequency}.
+     */
+    private final class JobPoller {
+        private final RunContext runContext;
+        private final Logger logger;
+        private final String baseUrl;
+        private final Long jobId;
+        private final AirbyteLogs airbyteLogs;
+        private final Duration logFrequency;
+        private final AtomicBoolean liveLogsFailureLogged = new AtomicBoolean(false);
+        private boolean lightStatus = true;
+        private Instant lastLogFetch;
+        private Integer currentAttempt;
+        private boolean currentAttemptEnded;
+        private Instant lastDiscoveredUpdatedAt;
+        // Init with 1 as when triggering sync, an attempt is automatically generated
+        private int knownAttempts = 1;
 
-        for (AttemptInfo attempt : attempts(job)) {
-            if (!loggedLine.containsKey(index) || attempt.getLogs().getLogLines().size() > loggedLine.get(index)) {
-                attempt.getLogs()
-                    .getLogLines()
-                    .subList(!loggedLine.containsKey(index) ? 0 : loggedLine.get(index) + 1, attempt.getLogs().getLogLines().size())
-                    .forEach(msg ->
-                    {
-                        if (msg.contains("ERROR[")) {
-                            logger.error(msg);
-                        } else if (msg.contains("WARN[")) {
-                            logger.warn(msg);
-                        } else if (msg.contains("DEBUG[")) {
-                            logger.debug(msg);
-                        } else if (msg.contains("TRACE[")) {
-                            logger.trace(msg);
-                        } else {
-                            logger.info(msg);
-                        }
-                    });
+        JobPoller(RunContext runContext, String baseUrl, Long jobId, AirbyteLogs airbyteLogs, Duration logFrequency) {
+            this.runContext = runContext;
+            this.logger = runContext.logger();
+            this.baseUrl = baseUrl;
+            this.jobId = jobId;
+            this.airbyteLogs = airbyteLogs;
+            this.logFrequency = logFrequency;
+        }
 
-                loggedLine.put(index, attempt.getLogs().getLogLines().size());
+        JobInfo status() throws Exception {
+            if (lightStatus) {
+                try {
+                    return fetch("/api/v1/jobs/get_light", Map.of("id", jobId), JobInfo.class, true);
+                } catch (RuntimeException e) {
+                    if (!isNotFound(e)) {
+                        throw e;
+                    }
+                    lightStatus = false;
+                    logger.debug("This Airbyte version has no `jobs/get_light` endpoint, polling `jobs/get` instead");
+                }
             }
-            index++;
+
+            var full = fetch(JOBS_GET, Map.of("id", jobId), JobInfo.class, true);
+            airbyteLogs.consume(JobReports.attempts(full));
+            return full;
+        }
+
+        /** Handles a failed attempt: Airbyte started a new attempt. */
+        void followAttempts(JobInfo jobInfo) {
+            if (JobReports.attempts(jobInfo).size() > knownAttempts) {
+                logger.warn("Previous attempt failed, creating a new sync attempt ...");
+                knownAttempts++;
+            }
+        }
+
+        // Attempt discovery drives the failed-attempt warning, so it runs even when the Airbyte logs are disabled.
+        void liveAttempt(JobInfo jobStatus) {
+            if (!lightStatus) {
+                return;
+            }
+
+            var logsEnabled = airbyteLogs.isEnabled();
+            var now = Instant.now();
+            if (logsEnabled) {
+                if (lastLogFetch != null && Duration.between(lastLogFetch, now).compareTo(logFrequency) < 0) {
+                    return;
+                }
+                lastLogFetch = now;
+            }
+
+            try {
+                // Without logs the end of the attempt is never observed, so any change of the job triggers a new discovery.
+                if (currentAttempt == null || ((currentAttemptEnded || !logsEnabled) && jobChangedSinceDiscovery(jobStatus))) {
+                    discoverAttempt(jobStatus.getJob().getUpdatedAt());
+                } else if (logsEnabled && !currentAttemptEnded) {
+                    var body = Map.<String, Object> of("jobId", jobId, "attemptNumber", currentAttempt);
+                    var attempt = fetch("/api/v1/attempt/get_for_job", body, AttemptInfo.class, false);
+                    airbyteLogs.consume(currentAttempt, attempt);
+                    currentAttemptEnded = isEnded(attempt);
+                }
+            } catch (Exception e) {
+                if (!logsEnabled) {
+                    logger.debug("Unable to discover the attempts of job {}: {}", jobId, e.getMessage());
+                } else if (liveLogsFailureLogged.compareAndSet(false, true)) {
+                    logger.warn("Unable to fetch the live Airbyte logs, they will be fetched when the job ends: {}", e.getMessage());
+                }
+            }
+        }
+
+        JobInfo finalStatus(JobInfo endedJobStatus) throws Exception {
+            var full = lightStatus ? fetch(JOBS_GET, Map.of("id", jobId), JobInfo.class, true) : endedJobStatus;
+            airbyteLogs.consume(JobReports.attempts(full));
+            return full;
+        }
+
+        // `job.updatedAt` moves when an attempt is created or ends, not on progress, so it tells when a new attempt may exist
+        // without a full `jobs/get` on every tick of Airbyte's backoff. Without it, fall back to looking every tick.
+        private boolean jobChangedSinceDiscovery(JobInfo jobStatus) {
+            var updatedAt = jobStatus.getJob().getUpdatedAt();
+            return updatedAt == null || !updatedAt.equals(lastDiscoveredUpdatedAt);
+        }
+
+        // Airbyte exposes no attempt count outside of `jobs/get`, and `attempt/get_for_job` fails on an attempt that does not exist yet.
+        private void discoverAttempt(Instant updatedAt) throws Exception {
+            var full = fetch(JOBS_GET, Map.of("id", jobId), JobInfo.class, false);
+            var attempts = JobReports.attempts(full);
+            airbyteLogs.consume(attempts);
+            followAttempts(full);
+
+            if (!attempts.isEmpty()) {
+                currentAttempt = AirbyteLogs.attemptNumber(attempts.getLast(), attempts.size() - 1);
+                currentAttemptEnded = isEnded(attempts.getLast());
+            }
+            // Only after the fetch and the logs succeeded, so a transient failure is retried on the next tick
+            lastDiscoveredUpdatedAt = updatedAt;
+        }
+
+        // `request` wraps the checked HTTP failure in a RuntimeException
+        private static boolean isNotFound(Throwable e) {
+            return (e instanceof HttpClientResponseException response && response.getResponse().getStatus().getCode() == 404)
+                || (e.getCause() != null && e.getCause() != e && isNotFound(e.getCause()));
+        }
+
+        private static boolean isEnded(AttemptInfo attempt) {
+            return attempt != null && attempt.getAttempt() != null && attempt.getAttempt().getStatus() != null
+                && attempt.getAttempt().getStatus() != AttemptStatus.RUNNING;
+        }
+
+        private <T> T fetch(String path, Map<String, Object> body, Class<T> type, boolean retry) throws Exception {
+            var request = HttpRequest.builder()
+                .uri(URI.create(baseUrl + path))
+                .method("POST")
+                .body(HttpRequest.JsonRequestBody.builder().content(body).build());
+
+            var response = retry ? request(runContext, request, type) : requestOnce(runContext, request, type);
+            return Objects.requireNonNull(response.getBody(), () -> "Empty response from Airbyte " + path);
         }
     }
 
@@ -514,6 +681,13 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
         )
         @PluginProperty(internalStorageURI = true)
         private final URI attempts;
+
+        @Schema(
+            title = "Airbyte logs file",
+            description = AIRBYTE_LOGS_DESCRIPTION
+        )
+        @PluginProperty(internalStorageURI = true)
+        private final URI airbyteLogs;
 
         @Schema(
             title = "Sync metadata",

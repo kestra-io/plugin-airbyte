@@ -3,9 +3,11 @@ package io.kestra.plugin.airbyte.connections;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -36,8 +38,12 @@ final class JobReports {
     private JobReports() {
     }
 
+    // Airbyte does not guarantee the order of the attempts, but the attempt id is the attempt number.
     static List<AttemptInfo> attempts(JobInfo jobInfo) {
-        return Optional.ofNullable(jobInfo.getAttempts()).orElseGet(List::of);
+        return Optional.ofNullable(jobInfo.getAttempts()).orElseGet(List::of).stream()
+            .filter(Objects::nonNull)
+            .sorted(Comparator.comparingLong(info -> Optional.ofNullable(info.getAttempt()).map(Attempt::getId).orElse(Long.MAX_VALUE)))
+            .toList();
     }
 
     static List<Attempt> attemptList(JobInfo jobInfo) {
@@ -109,6 +115,14 @@ final class JobReports {
     }
 
     static URI storeAttempts(RunContext runContext, List<AttemptRow> rows) throws IOException {
+        return storeRows(runContext, rows);
+    }
+
+    static URI storeLogs(RunContext runContext, Path file) throws IOException {
+        return runContext.storage().putFile(file.toFile());
+    }
+
+    private static URI storeRows(RunContext runContext, List<?> rows) throws IOException {
         var file = runContext.workingDir().createTempFile(".ion").toFile();
         try (var output = Files.newOutputStream(file.toPath())) {
             for (var row : rows) {
@@ -118,6 +132,8 @@ final class JobReports {
         return runContext.storage().putFile(file);
     }
 
+    // The worker drops WorkerTaskResult outputs of dynamic task runs, so the `jobId` marker read by the `logs` endpoint goes on the TaskRun.
+    @SuppressWarnings("deprecation")
     static void emitAttemptTaskRuns(RunContext runContext, JobInfo jobInfo, List<AttemptRow> rows) {
         var parentTaskRunId = variable(runContext, "taskrun", "id");
         if (parentTaskRunId == null) {
@@ -135,6 +151,7 @@ final class JobReports {
 
             var taskRun = TaskRun.builder()
                 .id(IdUtils.create())
+                .outputs(Map.of("jobId", jobInfo.getJob().getId()))
                 .namespace(variable(runContext, "flow", "namespace"))
                 .flowId(variable(runContext, "flow", "id"))
                 .taskId("attempt-" + row.getAttemptNumber())
@@ -150,9 +167,11 @@ final class JobReports {
 
     static String failureMessage(JobInfo jobInfo, JobSummary summary, String jobUrl) {
         var firstMessage = summary.getFailures().stream()
-            .map(failure -> failure.getExternalMessage() != null && !failure.getExternalMessage().isBlank()
-                ? failure.getExternalMessage()
-                : "[" + failure.getOrigin() + "/" + failure.getType() + "]")
+            .map(
+                failure -> failure.getExternalMessage() != null && !failure.getExternalMessage().isBlank()
+                    ? failure.getExternalMessage()
+                    : "[" + failure.getOrigin() + "/" + failure.getType() + "]"
+            )
             .findFirst();
 
         return "Airbyte job " + jobInfo.getJob().getId() + " ended " + summary.getStatus() + " after " + summary.getAttemptCount() + " attempt(s)"
@@ -165,11 +184,13 @@ final class JobReports {
             return List.of();
         }
         return row.getFailures().stream()
-            .map(failure -> new DynamicTaskRunLog(
-                Level.ERROR,
-                "[" + failure.getOrigin() + "/" + failure.getType() + "] "
-                    + Optional.ofNullable(failure.getExternalMessage()).orElse("No failure message reported by Airbyte")
-            ))
+            .map(
+                failure -> new DynamicTaskRunLog(
+                    Level.ERROR,
+                    "[" + failure.getOrigin() + "/" + failure.getType() + "] "
+                        + Optional.ofNullable(failure.getExternalMessage()).orElse("No failure message reported by Airbyte")
+                )
+            )
             .toList();
     }
 

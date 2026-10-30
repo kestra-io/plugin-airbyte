@@ -186,6 +186,143 @@ export const configuredTask = {
     assets: { enableAuto: true },
 };
 
+export type EndpointCall = {
+    name: string;
+    params: Record<string, string> | undefined;
+    query: { taskRunId?: string } | undefined;
+};
+
+// A fetchEndpoint stub: `responses` answers by endpoint name and every call is recorded in `calls`.
+export const endpointFetchers = (
+    outputs: Record<string, any>,
+    responses: Record<string, unknown>,
+    calls: EndpointCall[] = [],
+) => ({
+    ...fetchers(outputs),
+    fetchEndpoint: async (name: string, params?: Record<string, string>, query?: any) => {
+        calls.push({ name, params, query });
+        if (!(name in responses)) throw new Error(`no endpoint ${name}`);
+        return responses[name];
+    },
+});
+
+export const airbyteLogs = {
+    origin: "airbyte",
+    page: 1,
+    size: 50,
+    total: 3,
+    results: [
+        {
+            timestamp: "2024-01-15T10:00:01Z",
+            level: "INFO",
+            message: "Starting replication",
+            attempt: 0,
+            source: "orchestrator",
+        },
+        {
+            timestamp: "2024-01-15T10:00:02Z",
+            level: "WARN",
+            message: "Slow source response",
+            attempt: 0,
+            source: "source",
+        },
+        {
+            timestamp: "2024-01-15T10:00:03Z",
+            level: "ERROR",
+            message: "Connection refused by the destination",
+            attempt: 1,
+            source: "destination",
+        },
+    ],
+};
+
+export const kestraLogs = {
+    origin: "kestra",
+    page: 1,
+    size: 50,
+    total: 1,
+    results: [{ timestamp: "2024-01-15T10:00:01Z", level: "INFO", message: "Job 71 succeeded" }],
+};
+
+export const attemptsPage = {
+    page: 1,
+    size: 50,
+    total: 2,
+    results: [
+        {
+            attemptNumber: 0,
+            status: "failed",
+            createdAt: "2024-01-15T10:00:00Z",
+            endedAt: "2024-01-15T10:01:30Z",
+            bytesSynced: 1_000_000,
+            recordsSynced: 500,
+            partialSuccess: false,
+            failures: [
+                {
+                    origin: "destination",
+                    type: "transient_error",
+                    externalMessage: "Destination timed out",
+                },
+            ],
+        },
+        {
+            attemptNumber: 1,
+            status: "succeeded",
+            createdAt: "2024-01-15T10:02:00Z",
+            endedAt: "2024-01-15T10:03:15Z",
+            bytesSynced: 23_290_000,
+            recordsSynced: 60_800,
+            partialSuccess: false,
+            failures: [],
+        },
+    ],
+};
+
+export const snapshotStreams = {
+    total: 3,
+    streams: [
+        {
+            stream: { name: "orders", namespace: "public" },
+            config: {
+                selected: true,
+                syncMode: "incremental",
+                destinationSyncMode: "append_dedup",
+                cursorField: ["updated_at"],
+                primaryKey: [["id"]],
+            },
+        },
+        {
+            stream: { name: "customers", namespace: "public" },
+            config: { selected: true, syncMode: "full_refresh", destinationSyncMode: "overwrite" },
+        },
+        {
+            stream: { name: "audit", namespace: "public" },
+            config: { selected: false, syncMode: "full_refresh", destinationSyncMode: "append" },
+        },
+    ],
+};
+
+// What the host passes once the run is over: the task run carries its final state.
+export const finishedExecution = {
+    ...execution,
+    taskRunList: [
+        {
+            id: "tr-001",
+            taskId: "sync",
+            executionId: "exec-abc123",
+            state: { current: "SUCCESS" },
+        },
+        // Per-attempt sub task runs have their own task ID and no outputs.
+        {
+            id: "tr-002",
+            taskId: "attempt-0",
+            parentTaskRunId: "tr-001",
+            executionId: "exec-abc123",
+            state: { current: "SUCCESS" },
+        },
+    ],
+} as any;
+
 export const runningExecution = {
     ...execution,
     state: { current: "RUNNING", startDate: "2024-01-15T10:00:00Z" } as any,
