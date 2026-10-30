@@ -1,6 +1,7 @@
 package io.kestra.plugin.airbyte.connections;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -15,6 +16,7 @@ import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.assets.AssetsDeclaration;
+import io.kestra.core.models.assets.External;
 import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.models.property.Property;
@@ -23,15 +25,19 @@ import io.kestra.core.models.tasks.RunnableTaskException;
 import io.kestra.core.queues.DispatchQueueInterface;
 import io.kestra.core.runners.AssetEmit;
 import io.kestra.core.runners.AssetEmitter;
+import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
+import io.kestra.plugin.airbyte.StreamAssets;
+import io.kestra.plugin.airbyte.models.OnPartialSuccess;
 
 import jakarta.inject.Inject;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
@@ -222,21 +228,162 @@ class SnapshotOutputsTest {
         stubTrigger(101);
         stubJob(101, "succeeded");
 
-        var emitter = Mockito.mock(AssetEmitter.class);
-        var task = sync(wiremock).build();
-        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
-        Mockito.doReturn(emitter).when(runContext).assets();
-        var out = task.run(runContext);
+        var run = runSyncCollectingAssets(sync(wiremock));
 
-        var captor = ArgumentCaptor.forClass(AssetEmit.class);
-        Mockito.verify(emitter, Mockito.atLeastOnce()).emit(captor.capture());
-        assertThat(captor.getAllValues().getFirst().outputs().getFirst().getId(), is("analytics.public.customers"));
+        assertThat(run.emits().getFirst().outputs().getFirst().getId(), is("analytics.public.customers"));
 
-        try (var stream = runContext.storage().getFile(out.getConnectionSnapshot())) {
+        try (var stream = run.runContext().storage().getFile(run.output().getConnectionSnapshot())) {
             var file = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
             assertThat(file, not(containsString("analytics")));
             assertThat(file, not(containsString(SECRET_PASSWORD)));
         }
+    }
+
+    @Test
+    void database_sources_give_table_inputs_without_persisting_the_location(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubFor(
+            post(urlPathMatching("/api/v1/sources/get/?"))
+                .withRequestBody(matchingJsonPath("$.sourceId", equalTo("src-1")))
+                .willReturn(okJson("""
+                    {
+                      "sourceId": "src-1", "name": "production db", "sourceName": "Postgres", "sourceDefinitionId": "def-src", "workspaceId": "ws-1",
+                      "connectionConfiguration": { "host": "%s", "database": "shopdb", "schemas": ["public"], "password": "%s" }
+                    }
+                    """.formatted(SECRET_HOST, SECRET_PASSWORD)))
+        );
+        stubTrigger(103);
+        stubJob(103, "succeeded");
+
+        var run = runSyncCollectingAssets(sync(wiremock));
+
+        var emits = run.emits();
+        assertThat(emits.getFirst().inputs().getFirst().id(), is("shopdb.public.customers"));
+        assertThat(emits.getFirst().inputs().getFirst().type(), is(StreamAssets.TABLE_ASSET_TYPE));
+        // The 0-row stream of a succeeded job is emitted too
+        assertThat(emits.size(), is(2));
+        assertThat(emits.get(1).outputs().getFirst().getMetadata().get("recordsCommitted"), is(0L));
+
+        try (var stream = run.runContext().storage().getFile(run.output().getConnectionSnapshot())) {
+            var file = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(file, not(containsString("shopdb")));
+            assertThat(file, not(containsString(SECRET_PASSWORD)));
+        }
+    }
+
+    private void stubPostgresSource() {
+        stubFor(
+            post(urlPathMatching("/api/v1/sources/get/?"))
+                .withRequestBody(matchingJsonPath("$.sourceId", equalTo("src-1")))
+                .willReturn(okJson("""
+                    {
+                      "sourceId": "src-1", "name": "production db", "sourceName": "Postgres", "sourceDefinitionId": "def-src", "workspaceId": "ws-1",
+                      "connectionConfiguration": { "host": "%s", "database": "shop", "password": "%s" }
+                    }
+                    """.formatted(SECRET_HOST, SECRET_PASSWORD)))
+        );
+    }
+
+    // Airbyte OSS reports the stats of a database source without streamNamespace, while the catalog streams carry one
+    private void stubNamespaceLessJob(long id, String configType, String jobStatus, String attemptStatus, String failureSummary) {
+        stubFor(
+            post(urlPathMatching("/api/v1/jobs/get/?"))
+                .withRequestBody(matchingJsonPath("$.id", equalTo(String.valueOf(id))))
+                .willReturn(okJson("""
+                    {
+                      "job": { "id": %d, "configType": "%s", "configId": "%s", "status": "%s", "createdAt": 1700000000 },
+                      "attempts": [
+                        { "attempt": { "id": 0, "status": "%s", "createdAt": 1700000010, "endedAt": 1700000070, %s
+                            "streamStats": [
+                              { "streamName": "customers", "stats": { "recordsEmitted": 3, "recordsCommitted": 3, "bytesCommitted": 30 } },
+                              { "streamName": "orders", "stats": { "recordsEmitted": 0, "recordsCommitted": 0 } }
+                            ] },
+                          "logs": { "logLines": [] } }
+                      ]
+                    }
+                    """.formatted(id, configType, CONNECTION_ID, jobStatus, attemptStatus, failureSummary)))
+        );
+    }
+
+    private record AssetRun(Sync.Output output, RunContext runContext, List<AssetEmit> emits) {
+    }
+
+    private AssetRun runSyncCollectingAssets(Sync.SyncBuilder<?, ?> builder) throws Exception {
+        var emitter = Mockito.mock(AssetEmitter.class);
+        var task = builder.build();
+        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        Mockito.doReturn(emitter).when(runContext).assets();
+        var output = task.run(runContext);
+
+        var captor = ArgumentCaptor.forClass(AssetEmit.class);
+        Mockito.verify(emitter, Mockito.atLeast(0)).emit(captor.capture());
+        return new AssetRun(output, runContext, captor.getAllValues());
+    }
+
+    @Test
+    void database_sources_without_stream_namespace_in_the_stats_still_emit_assets(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubPostgresSource();
+        stubTrigger(105);
+        stubNamespaceLessJob(105, "sync", "succeeded", "succeeded", "");
+
+        var emits = runSyncCollectingAssets(sync(wiremock)).emits();
+
+        assertThat(emits.size(), is(2));
+        var customers = emits.getFirst();
+        assertThat(customers.inputs().getFirst().id(), is("shop.public.customers"));
+        assertThat(customers.inputs().getFirst().type(), is(StreamAssets.TABLE_ASSET_TYPE));
+        assertThat(customers.outputs().getFirst().getId(), is("dst-1.public.customers"));
+        assertThat(customers.outputs().getFirst().getMetadata().get("recordsCommitted"), is(3L));
+        // The 0-record stream of a SUCCEEDED job is emitted too
+        var orders = emits.get(1);
+        assertThat(orders.inputs().getFirst().id(), is("shop.public.orders"));
+        assertThat(orders.outputs().getFirst().getMetadata().get("recordsCommitted"), is(0L));
+    }
+
+    @Test
+    void refresh_jobs_emit_assets(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubPostgresSource();
+        stubTrigger(106);
+        stubNamespaceLessJob(106, "refresh", "succeeded", "succeeded", "");
+
+        var emits = runSyncCollectingAssets(sync(wiremock)).emits();
+
+        assertThat(emits.size(), is(2));
+        assertThat(emits.getFirst().outputs().getFirst().getMetadata().get("recordsCommitted"), is(3L));
+    }
+
+    @Test
+    void partial_success_jobs_emit_no_asset_even_for_a_zero_row_stream(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubPostgresSource();
+        stubTrigger(107);
+        stubNamespaceLessJob(107, "sync", "failed", "failed", "\"failureSummary\": { \"partialSuccess\": true, \"failures\": [] },");
+
+        var run = runSyncCollectingAssets(sync(wiremock).onPartialSuccess(Property.ofValue(OnPartialSuccess.WARNING)));
+
+        assertThat(run.output().finalState(), is(Optional.of(State.Type.WARNING)));
+        assertThat(run.emits(), empty());
+    }
+
+    @Test
+    void api_sources_keep_the_external_input(WireMockRuntimeInfo wiremock) throws Exception {
+        stubSnapshotEndpoints();
+        stubTrigger(104);
+        stubJob(104, "succeeded");
+        stubFor(
+            post(urlPathMatching("/api/v1/sources/get/?"))
+                .willReturn(okJson("""
+                    { "sourceId": "src-1", "name": "stripe", "sourceName": "Stripe", "workspaceId": "ws-1",
+                      "connectionConfiguration": { "database": "not-a-db", "client_secret": "%s" } }
+                    """.formatted(SECRET_PASSWORD)))
+        );
+
+        var input = runSyncCollectingAssets(sync(wiremock)).emits().getFirst().inputs().getFirst();
+
+        assertThat(input.id(), is("src-1.public.customers"));
+        assertThat(input.type(), is(External.ASSET_TYPE));
     }
 
     @Test

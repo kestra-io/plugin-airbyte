@@ -10,6 +10,7 @@ import org.mockito.ArgumentCaptor;
 import org.slf4j.Logger;
 
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
+import io.kestra.core.models.assets.AssetIdentifier;
 import io.kestra.core.models.assets.AssetsDeclaration;
 import io.kestra.core.models.assets.External;
 import io.kestra.core.models.flows.State;
@@ -24,8 +25,8 @@ import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionStream;
+import io.kestra.plugin.airbyte.models.ConnectorLocation;
 import io.kestra.plugin.airbyte.models.Destination;
-import io.kestra.plugin.airbyte.models.DestinationLocation;
 import io.kestra.plugin.airbyte.models.Source;
 import io.kestra.plugin.airbyte.models.StreamConfig;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
@@ -67,7 +68,7 @@ class StreamAssetsTest {
             .build();
     }
 
-    private static ConnectionSnapshot located(String type, DestinationLocation location, String namespaceDefinition, String prefix, ConnectionStream... streams) {
+    private static ConnectionSnapshot located(String type, ConnectorLocation location, String namespaceDefinition, String prefix, ConnectionStream... streams) {
         var base = snapshot(namespaceDefinition, null, prefix, streams);
         return ConnectionSnapshot.builder()
             .connection(base.getConnection())
@@ -223,10 +224,164 @@ class StreamAssetsTest {
             StreamAssets.committed(metadata), 12L, "succeeded", true
         );
 
-        assertThat(planned.size(), is(1));
+        assertThat(planned.size(), is(2));
         assertThat(planned.getFirst().output().getMetadata().get("recordsCommitted"), is(5L));
         assertThat(planned.getFirst().output().getMetadata().get("bytes"), is(50L));
+        assertThat(planned.get(1).output().getMetadata().get("recordsCommitted"), is(0L));
         assertThat(StreamAssets.committed(null).isEmpty(), is(true));
+    }
+
+    @Test
+    void zero_row_streams_are_emitted_only_when_the_job_succeeded() {
+        var snapshot = snapshot("source", null, null, stream("customers", "public", null), stream("empty", "public", null), stream("absent", "public", null));
+        var committed = Map.of(descriptor("customers", "public"), rows(5), descriptor("empty", "public"), rows(0));
+
+        var succeeded = StreamAssets.plan(snapshot, committed, 12L, "succeeded", true);
+        var failed = StreamAssets.plan(snapshot, committed, 12L, "failed", false);
+
+        assertThat(succeeded.stream().map(asset -> asset.output().getDisplayName()).toList(), contains("customers", "empty"));
+        var empty = succeeded.get(1).output().getMetadata();
+        assertThat(empty.get("recordsCommitted"), is(0L));
+        assertThat(empty.get("lastJobId"), is(12L));
+        assertThat(empty.get("lastJobStatus"), is("succeeded"));
+        assertThat(failed.stream().map(asset -> asset.output().getDisplayName()).toList(), contains("customers"));
+    }
+
+    @Test
+    void stats_without_namespace_match_the_catalog_stream_by_name() {
+        var snapshot = snapshot("source", null, null, stream("customers", "public", null), stream("orders", "public", null));
+        var committed = Map.of(descriptor("customers", null), rows(3), descriptor("orders", null), rows(0));
+
+        var planned = StreamAssets.plan(snapshot, committed, 12L, "succeeded", true);
+        assertThat(planned.stream().map(asset -> asset.output().getDisplayName()).toList(), contains("customers", "orders"));
+        assertThat(planned.getFirst().output().getId(), is("dst-1.public.customers"));
+        assertThat(planned.getFirst().output().getMetadata().get("recordsCommitted"), is(3L));
+        assertThat(planned.get(1).output().getMetadata().get("recordsCommitted"), is(0L));
+
+        // A failed job still only emits the streams that committed records
+        assertThat(StreamAssets.plan(snapshot, committed, 12L, "failed", false).size(), is(1));
+        // Blank namespaces in the stats count as missing
+        var blank = StreamAssets.committed(
+            SyncMetadata.builder().destination(List.of(SyncMetadata.Table.builder().name("customers").namespace("").rows(3L).build())).build()
+        );
+        assertThat(StreamAssets.plan(snapshot, blank, 12L, "succeeded", true).size(), is(1));
+    }
+
+    @Test
+    void an_exact_namespace_match_wins_over_the_name_fallback() {
+        var snapshot = snapshot("source", null, null, stream("customers", "public", null));
+        var committed = Map.of(descriptor("customers", null), rows(1), descriptor("customers", "public"), rows(9));
+
+        var planned = StreamAssets.plan(snapshot, committed, 12L, "succeeded", true);
+        assertThat(planned.getFirst().output().getMetadata().get("recordsCommitted"), is(9L));
+    }
+
+    @Test
+    void stats_without_namespace_are_not_guessed_when_streams_share_a_name() {
+        var snapshot = snapshot("source", null, null, stream("customers", "public", null), stream("customers", "archive", null));
+        var committed = Map.of(descriptor("customers", null), rows(3));
+
+        assertThat(StreamAssets.plan(snapshot, committed, 12L, "succeeded", true), empty());
+
+        // Stats that carry the namespace are still attributed exactly
+        var exact = StreamAssets.plan(snapshot, Map.of(descriptor("customers", "archive"), rows(3)), 12L, "succeeded", true);
+        assertThat(exact.size(), is(1));
+        assertThat(exact.getFirst().output().getId(), is("dst-1.archive.customers"));
+
+        // A name shared with an unselected stream is still unambiguous
+        var unselected = ConnectionStream.builder()
+            .stream(descriptor("customers", "archive"))
+            .config(StreamConfig.builder().selected(false).build())
+            .build();
+        var single = snapshot("source", null, null, stream("customers", "public", null), unselected);
+        assertThat(StreamAssets.plan(single, committed, 12L, "succeeded", true).size(), is(1));
+    }
+
+    @Test
+    void source_locations_resolve_the_real_self_hosted_connector_names() {
+        var config = Map.of("database", "shop", "schema", "dbo");
+
+        assertThat(ConnectorLocations.parseSource("Microsoft SQL Server (MSSQL)", config).orElseThrow(), is(new ConnectorLocation("shop", "dbo", false)));
+        assertThat(ConnectorLocations.parseSource("Redshift", config).orElseThrow(), is(new ConnectorLocation("shop", "dbo", false)));
+        assertThat(ConnectorLocations.parseSource("ClickHouse", config).orElseThrow(), is(new ConnectorLocation("shop", null, true)));
+        // Databricks is a destination only
+        assertThat(ConnectorLocations.parseSource("Databricks", config).isPresent(), is(false));
+        assertThat(ConnectorLocations.parse("Databricks Lakehouse", config).isPresent(), is(true));
+    }
+
+    private static ConnectionSnapshot withSource(String sourceType, ConnectorLocation sourceLocation, String namespaceDefinition, ConnectionStream... streams) {
+        var base = snapshot(namespaceDefinition, null, null, streams);
+        return ConnectionSnapshot.builder()
+            .connection(base.getConnection())
+            .source(Source.builder().sourceId("src-1").name("production db").sourceName(sourceType).build())
+            .destination(base.getDestination())
+            .sourceLocation(sourceLocation)
+            .build();
+    }
+
+    private static AssetIdentifier input(ConnectionSnapshot snapshot, String stream, String namespace) {
+        return StreamAssets.plan(snapshot, Map.of(descriptor(stream, namespace), rows(5)), 12L, "succeeded", true).getFirst().input();
+    }
+
+    @Test
+    void database_sources_give_table_inputs() {
+        var postgres = input(withSource("Postgres", new ConnectorLocation("shop", null, false), "source", stream("customers", "public", null)), "customers", "public");
+        var snowflake = input(withSource("Snowflake", new ConnectorLocation("SHOP", "PUBLIC", false), "source", stream("customers", "SALES", null)), "customers", "SALES");
+        var bigquery = input(withSource("BigQuery", new ConnectorLocation("my-project", "raw", false), "source", stream("customers", "events", null)), "customers", "events");
+
+        assertThat(postgres.id(), is("shop.public.customers"));
+        assertThat(postgres.type(), is(StreamAssets.TABLE_ASSET_TYPE));
+        assertThat(postgres.namespace(), nullValue());
+        assertThat(snowflake.id(), is("SHOP.SALES.customers"));
+        assertThat(bigquery.id(), is("my-project.events.customers"));
+    }
+
+    @Test
+    void schemaless_database_sources_use_the_namespace_as_database() {
+        var mysql = withSource("MySQL", new ConnectorLocation("shop", null, true), "source", stream("customers", "sales", null), stream("orders", null, null));
+
+        assertThat(input(mysql, "customers", "sales").id(), is("sales.customers"));
+        assertThat(input(mysql, "orders", null).id(), is("shop.orders"));
+        assertThat(input(mysql, "orders", null).type(), is(StreamAssets.TABLE_ASSET_TYPE));
+    }
+
+    @Test
+    void source_default_schema_is_used_without_a_stream_namespace() {
+        var snowflake = withSource("Snowflake", new ConnectorLocation("SHOP", "PUBLIC", false), "source", stream("customers", null, null));
+
+        assertThat(input(snowflake, "customers", null).id(), is("SHOP.PUBLIC.customers"));
+    }
+
+    @Test
+    void api_and_unresolved_sources_keep_the_external_input() {
+        var api = input(withSource("Stripe", null, "source", stream("customers", null, null)), "customers", null);
+        var noSchema = input(withSource("Postgres", new ConnectorLocation("shop", null, false), "source", stream("customers", null, null)), "customers", null);
+
+        assertThat(api.id(), is("src-1.customers"));
+        assertThat(api.type(), is(External.ASSET_TYPE));
+        assertThat(noSchema.id(), is("src-1.customers"));
+        assertThat(noSchema.type(), is(External.ASSET_TYPE));
+    }
+
+    @Test
+    void source_locations_are_read_per_connector() {
+        var config = Map.of("database", "shop", "project_id", "proj", "dataset_id", "ds", "password", "secret");
+
+        assertThat(ConnectorLocations.parseSource("Postgres", config).orElseThrow(), is(new ConnectorLocation("shop", null, false)));
+        assertThat(ConnectorLocations.parseSource("BigQuery", config).orElseThrow(), is(new ConnectorLocation("proj", "ds", false)));
+        assertThat(ConnectorLocations.parseSource("Stripe", config).isPresent(), is(false));
+        // Databricks is destination-only in Airbyte
+        assertThat(ConnectorLocations.parseSource("Databricks", Map.of("database", "shop", "schema", "public")).isPresent(), is(false));
+    }
+
+    @Test
+    void snapshot_json_never_contains_the_source_location() throws Exception {
+        var json = JacksonMapper.ofJson().writeValueAsString(
+            withSource("Postgres", new ConnectorLocation("shopdb", "public", false), "source", stream("customers", "public", null))
+        );
+
+        assertThat(json, not(containsString("sourceLocation")));
+        assertThat(json, not(containsString("shopdb")));
     }
 
     @Test
@@ -402,7 +557,7 @@ class StreamAssetsTest {
     @Test
     void postgres_location_gives_database_schema_table_ids() {
         var planned = StreamAssets.plan(
-            located("Postgres", new DestinationLocation("analytics", "public", false), "destination", "raw_", stream("customers", "public", null)),
+            located("Postgres", new ConnectorLocation("analytics", "public", false), "destination", "raw_", stream("customers", "public", null)),
             Map.of(descriptor("customers", "public"), rows(5)), 12L, "succeeded", true
         );
 
@@ -421,7 +576,7 @@ class StreamAssetsTest {
     @Test
     void stream_namespace_wins_over_the_default_schema() {
         var planned = StreamAssets.plan(
-            located("Snowflake", new DestinationLocation("ANALYTICS", "PUBLIC", false), "source", null, stream("customers", "sales", "ORDERS_TBL")),
+            located("Snowflake", new ConnectorLocation("ANALYTICS", "PUBLIC", false), "source", null, stream("customers", "sales", "ORDERS_TBL")),
             Map.of(descriptor("customers", "sales"), rows(5)), 12L, "succeeded", true
         );
 
@@ -431,7 +586,7 @@ class StreamAssetsTest {
     @Test
     void bigquery_location_uses_project_and_dataset() {
         var planned = StreamAssets.plan(
-            located("BigQuery", new DestinationLocation("my-project", "raw", false), "destination", null, stream("customers", null, null)),
+            located("BigQuery", new ConnectorLocation("my-project", "raw", false), "destination", null, stream("customers", null, null)),
             Map.of(descriptor("customers", null), rows(5)), 12L, "succeeded", true
         );
 
@@ -441,11 +596,11 @@ class StreamAssetsTest {
     @Test
     void schemaless_destination_gives_database_table_ids() {
         var planned = StreamAssets.plan(
-            located("MySQL", new DestinationLocation("shop", null, true), "source", null, stream("customers", "sales", null)),
+            located("MySQL", new ConnectorLocation("shop", null, true), "source", null, stream("customers", "sales", null)),
             Map.of(descriptor("customers", "sales"), rows(5)), 12L, "succeeded", true
         );
         var noNamespace = StreamAssets.plan(
-            located("MySQL", new DestinationLocation("shop", null, true), "destination", null, stream("customers", "sales", null)),
+            located("MySQL", new ConnectorLocation("shop", null, true), "destination", null, stream("customers", "sales", null)),
             Map.of(descriptor("customers", "sales"), rows(5)), 12L, "succeeded", true
         );
 
@@ -461,7 +616,7 @@ class StreamAssetsTest {
         var snapshot = ConnectionSnapshot.builder()
             .connection(base.getConnection())
             .destination(base.getDestination())
-            .destinationLocation(new DestinationLocation("analytics", "public", false))
+            .destinationLocation(new ConnectorLocation("analytics", "public", false))
             .build();
 
         var planned = StreamAssets.plan(snapshot, Map.of(descriptor("customers", "sales"), rows(5)), 12L, "succeeded", true);
@@ -476,7 +631,7 @@ class StreamAssetsTest {
             Map.of(descriptor("customers", "public"), rows(5)), 12L, "succeeded", true
         );
         var noSchema = StreamAssets.plan(
-            located("Postgres", new DestinationLocation("analytics", null, false), "destination", null, stream("customers", "public", null)),
+            located("Postgres", new ConnectorLocation("analytics", null, false), "destination", null, stream("customers", "public", null)),
             Map.of(descriptor("customers", "public"), rows(5)), 12L, "succeeded", true
         );
 
@@ -499,42 +654,42 @@ class StreamAssetsTest {
     @Test
     void destination_locations_are_read_per_connector() {
         var config = Map.of("database", "analytics", "schema", "public", "project_id", "proj", "dataset_id", "ds", "password", "secret");
-        var warehouse = new DestinationLocation("analytics", "public", false);
+        var warehouse = new ConnectorLocation("analytics", "public", false);
 
         // Self-hosted destination names, then the Airbyte Cloud type strings
         for (var type : List.of("Postgres", "Snowflake", "MS SQL Server", "Redshift", "Databricks Lakehouse", "postgres", "snowflake", "mssql", "redshift", "databricks")) {
-            assertThat(type, DestinationLocations.parse(type, config).orElseThrow(), is(warehouse));
+            assertThat(type, ConnectorLocations.parse(type, config).orElseThrow(), is(warehouse));
         }
         for (var type : List.of("BigQuery", "bigquery")) {
-            assertThat(type, DestinationLocations.parse(type, config).orElseThrow(), is(new DestinationLocation("proj", "ds", false)));
+            assertThat(type, ConnectorLocations.parse(type, config).orElseThrow(), is(new ConnectorLocation("proj", "ds", false)));
         }
         for (var type : List.of("MySQL", "ClickHouse", "mysql", "clickhouse")) {
-            assertThat(type, DestinationLocations.parse(type, config).orElseThrow(), is(new DestinationLocation("analytics", null, true)));
+            assertThat(type, ConnectorLocations.parse(type, config).orElseThrow(), is(new ConnectorLocation("analytics", null, true)));
         }
-        assertThat(DestinationLocations.parse("S3", config).isPresent(), is(false));
-        assertThat(DestinationLocations.parse(null, config).isPresent(), is(false));
-        assertThat(DestinationLocations.parse("Postgres", null).isPresent(), is(false));
-        assertThat(DestinationLocations.parse("Postgres", "not a config").isPresent(), is(false));
+        assertThat(ConnectorLocations.parse("S3", config).isPresent(), is(false));
+        assertThat(ConnectorLocations.parse(null, config).isPresent(), is(false));
+        assertThat(ConnectorLocations.parse("Postgres", null).isPresent(), is(false));
+        assertThat(ConnectorLocations.parse("Postgres", "not a config").isPresent(), is(false));
     }
 
     @Test
     void snowflake_cortex_is_not_a_warehouse() {
         var config = Map.of("database", "analytics", "schema", "public");
 
-        assertThat(DestinationLocations.parse("Snowflake Cortex", config).isPresent(), is(false));
-        assertThat(DestinationLocations.parse("snowflake-cortex", config).isPresent(), is(false));
+        assertThat(ConnectorLocations.parse("Snowflake Cortex", config).isPresent(), is(false));
+        assertThat(ConnectorLocations.parse("snowflake-cortex", config).isPresent(), is(false));
     }
 
     @Test
     void blank_location_values_are_ignored_and_trimmed() {
-        assertThat(DestinationLocations.parse("Postgres", Map.of("database", " ", "schema", "public")).isPresent(), is(false));
-        assertThat(DestinationLocations.parse("Postgres", Map.of("database", " analytics ", "schema", "")).orElseThrow(), is(new DestinationLocation("analytics", null, false)));
+        assertThat(ConnectorLocations.parse("Postgres", Map.of("database", " ", "schema", "public")).isPresent(), is(false));
+        assertThat(ConnectorLocations.parse("Postgres", Map.of("database", " analytics ", "schema", "")).orElseThrow(), is(new ConnectorLocation("analytics", null, false)));
     }
 
     @Test
     void snapshot_json_never_contains_the_location_or_config_keys() throws Exception {
         var json = JacksonMapper.ofJson().writeValueAsString(
-            located("Postgres", new DestinationLocation("analytics", "public", false), "source", null, stream("customers", "public", null))
+            located("Postgres", new ConnectorLocation("analytics", "public", false), "source", null, stream("customers", "public", null))
         );
 
         assertThat(json, not(containsString("destinationLocation")));

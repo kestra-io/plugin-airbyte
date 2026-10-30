@@ -8,20 +8,20 @@ import com.airbyte.api.models.shared.NamespaceDefinitionEnum;
 import com.airbyte.api.models.shared.SourceResponse;
 import com.airbyte.api.models.shared.StreamConfiguration;
 
-import io.kestra.plugin.airbyte.DestinationLocations;
+import io.kestra.plugin.airbyte.ConnectorLocations;
 import io.kestra.plugin.airbyte.StreamAssets;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionStream;
+import io.kestra.plugin.airbyte.models.ConnectorLocation;
 import io.kestra.plugin.airbyte.models.Destination;
-import io.kestra.plugin.airbyte.models.DestinationLocation;
 import io.kestra.plugin.airbyte.models.Source;
 import io.kestra.plugin.airbyte.models.StreamConfig;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
 
 /**
- * Maps the Airbyte Cloud API responses onto the shared snapshot models. {@code configuration()} of sources is never read and the one of
- * destinations only for its location keys, which are not part of the serialized snapshot. A null source or destination is allowed when
+ * Maps the Airbyte Cloud API responses onto the shared snapshot models. {@code configuration()} of sources and destinations is only read
+ * for its location keys, which are not part of the serialized snapshot. A null source or destination is allowed when
  * the SDK could not read it.
  */
 public final class CloudSnapshots {
@@ -52,6 +52,7 @@ public final class CloudSnapshots {
             .source(source == null ? null : toSource(source))
             .destination(destination == null ? null : toDestination(destination))
             .destinationLocation(location(connection, destination))
+            .sourceLocation(source == null ? null : ConnectorLocations.parseSource(source.sourceType(), source.configuration()).orElse(null))
             .build();
     }
 
@@ -60,14 +61,14 @@ public final class CloudSnapshots {
      * there. For a {@code source} namespace or a custom format using {@code ${SOURCE_NAMESPACE}} the location stays null and asset ids fall
      * back to the destination ID.
      */
-    private static DestinationLocation location(ConnectionResponse connection, DestinationResponse destination) {
+    private static ConnectorLocation location(ConnectionResponse connection, DestinationResponse destination) {
         if (destination == null) {
             return null;
         }
         var definition = connection.namespaceDefinition().orElse(null);
         var usesDefaultSchema = definition == NamespaceDefinitionEnum.DESTINATION
             || (definition == NamespaceDefinitionEnum.CUSTOM_FORMAT && !connection.namespaceFormat().orElse("").contains(StreamAssets.SOURCE_NAMESPACE_PLACEHOLDER));
-        return usesDefaultSchema ? DestinationLocations.parse(destination.destinationType(), destination.configuration()).orElse(null) : null;
+        return usesDefaultSchema ? ConnectorLocations.parse(destination.destinationType(), destination.configuration()).orElse(null) : null;
     }
 
     private static Source toSource(SourceResponse source) {
