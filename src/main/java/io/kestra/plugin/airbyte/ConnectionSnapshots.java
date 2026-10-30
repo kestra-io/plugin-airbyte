@@ -6,6 +6,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiFunction;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -40,8 +41,18 @@ public final class ConnectionSnapshots {
 
             return Optional.of(
                 ConnectionSnapshot.builder().connection(connection).source(source).destination(destination)
-                    .destinationLocation(location(runContext, destination, destinationResponse))
-                    .sourceLocation(sourceLocation(runContext, source, sourceResponse))
+                    .destinationLocation(
+                        location(
+                            runContext, ConnectorLocations::parse, destination.getDestinationName(), destinationResponse, "destination", destination.getDestinationId(),
+                            "asset ids fall back to the Airbyte destination ID"
+                        )
+                    )
+                    .sourceLocation(
+                        location(
+                            runContext, ConnectorLocations::parseSource, source.getSourceName(), sourceResponse, "source", source.getSourceId(),
+                            "asset inputs fall back to the Airbyte source ID"
+                        )
+                    )
                     .build()
             );
         } catch (Exception e) {
@@ -53,18 +64,12 @@ public final class ConnectionSnapshots {
         }
     }
 
-    private static ConnectorLocation location(RunContext runContext, Destination destination, Map<?, ?> destinationResponse) {
-        var location = ConnectorLocations.parse(destination.getDestinationName(), destinationResponse.get("connectionConfiguration"));
+    private static ConnectorLocation location(
+        RunContext runContext, BiFunction<String, Object, Optional<ConnectorLocation>> parser, String connectorType, Object response, String side,
+        String id, String fallback) {
+        var location = parser.apply(connectorType, ((Map<?, ?>) response).get("connectionConfiguration"));
         if (location.isEmpty()) {
-            runContext.logger().debug("No destination location resolved for destination {}, asset ids fall back to the Airbyte destination ID", destination.getDestinationId());
-        }
-        return location.orElse(null);
-    }
-
-    private static ConnectorLocation sourceLocation(RunContext runContext, Source source, Map<?, ?> sourceResponse) {
-        var location = ConnectorLocations.parseSource(source.getSourceName(), sourceResponse.get("connectionConfiguration"));
-        if (location.isEmpty()) {
-            runContext.logger().debug("No source location resolved for source {}, asset inputs fall back to the Airbyte source ID", source.getSourceId());
+            runContext.logger().debug("No {} location resolved for {} {}, {}", side, side, id, fallback);
         }
         return location.orElse(null);
     }

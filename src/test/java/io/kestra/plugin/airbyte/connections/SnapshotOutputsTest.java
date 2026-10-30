@@ -37,6 +37,7 @@ import jakarta.inject.Inject;
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
@@ -360,14 +361,10 @@ class SnapshotOutputsTest {
         stubTrigger(107);
         stubNamespaceLessJob(107, "sync", "failed", "failed", "\"failureSummary\": { \"partialSuccess\": true, \"failures\": [] },");
 
-        var emitter = Mockito.mock(AssetEmitter.class);
-        var task = sync(wiremock).onPartialSuccess(Property.ofValue(OnPartialSuccess.WARNING)).build();
-        var runContext = Mockito.spy(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
-        Mockito.doReturn(emitter).when(runContext).assets();
-        var out = task.run(runContext);
+        var run = runSyncCollectingAssets(sync(wiremock).onPartialSuccess(Property.ofValue(OnPartialSuccess.WARNING)));
 
-        assertThat(out.finalState(), is(Optional.of(State.Type.WARNING)));
-        Mockito.verify(emitter, Mockito.never()).emit(Mockito.any());
+        assertThat(run.output().finalState(), is(Optional.of(State.Type.WARNING)));
+        assertThat(run.emits(), empty());
     }
 
     @Test

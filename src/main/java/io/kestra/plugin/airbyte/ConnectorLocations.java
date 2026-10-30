@@ -25,10 +25,7 @@ public final class ConnectorLocations {
         return parse(connectorType, configuration, false);
     }
 
-    /**
-     * Location of a database source, whose configuration holds the same location keys. Databricks is destination-only in Airbyte, so it
-     * is not resolved here. Never throws.
-     */
+    /** Location of a database source (Databricks is destination-only, so not resolved). Never throws. */
     public static Optional<ConnectorLocation> parseSource(String connectorType, Object configuration) {
         return parse(connectorType, configuration, true);
     }

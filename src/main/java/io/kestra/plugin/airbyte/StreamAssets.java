@@ -28,10 +28,7 @@ import io.kestra.plugin.airbyte.models.ConnectorLocation;
 import io.kestra.plugin.airbyte.models.StreamDescriptor;
 import io.kestra.plugin.airbyte.models.SyncMetadata;
 
-/**
- * Lineage assets of a job: one {@code Table} per replicated stream, fed by the matching source stream: a {@code Table} for a database
- * source, else an {@code External} asset.
- */
+/** Lineage assets of a job: one {@code Table} per replicated stream, fed by its source stream ({@code Table} for a database source, else {@code External}). */
 public final class StreamAssets {
     public static final String TABLE_ASSET_TYPE = "io.kestra.plugin.ee.assets.Table";
 
@@ -74,12 +71,7 @@ public final class StreamAssets {
     public record Planned(AssetIdentifier input, Custom output) {
     }
 
-    /**
-     * @param committed per-stream committed counts of the job's successful attempts (rows committed by an earlier failed attempt are not
-     *        included, like in {@code metadata}), empty when Airbyte reports none
-     * @param jobSucceeded whether the job ended {@code SUCCEEDED}: only then are streams with 0 committed records emitted, and without
-     *        per-stream counts this is the only signal that data landed
-     */
+    /** Plans one asset per selected stream; {@code committed} holds successful-attempt counts only, 0-record streams need {@code jobSucceeded}. */
     public static List<Planned> plan(
         ConnectionSnapshot snapshot,
         Map<StreamDescriptor, Committed> committed,
@@ -237,41 +229,31 @@ public final class StreamAssets {
         return id != null ? id : sanitize(connection.getDestinationId(), namespace, table);
     }
 
-    /**
-     * Id of a table at a destination or source location, the same as the JDBC, dbt and Fivetran plugins give it. MySQL and ClickHouse have
-     * no schema level: the namespace is the database. {@code null} when the location is unknown or no schema can be determined.
-     */
+    /** Database and schema of a table at a location (the schema is null for MySQL/ClickHouse, whose database is the namespace), or null when unknown. */
+    private record TableLocation(String database, String schema) {
+        static TableLocation of(ConnectorLocation location, String namespace) {
+            if (location == null) {
+                return null;
+            }
+            if (location.schemaless()) {
+                return new TableLocation(namespace != null ? namespace : location.database(), null);
+            }
+            return new TableLocation(location.database(), namespace != null ? namespace : location.schema());
+        }
+
+        /** Null when a schema is expected but unknown. */
+        String id(boolean schemaless, String table) {
+            if (schemaless) {
+                return sanitize(database, table);
+            }
+            return schema == null ? null : sanitize(database, schema, table);
+        }
+    }
+
+    /** Id of a table at a location, shaped like the JDBC, dbt and Fivetran ids; null when the location or its schema is unknown. */
     private static String tableId(ConnectorLocation location, String namespace, String table) {
-        if (location == null) {
-            return null;
-        }
-        if (location.schemaless()) {
-            return sanitize(namespace != null ? namespace : location.database(), table);
-        }
-        var schema = namespace != null ? namespace : location.schema();
-        return schema == null ? null : sanitize(location.database(), schema, table);
-    }
-
-    // Same rules as tableId, for the asset metadata
-    private static String database(ConnectionSnapshot snapshot, ConnectionStream stream) {
-        var location = snapshot.getDestinationLocation();
-        if (location == null) {
-            return null;
-        }
-        if (location.schemaless()) {
-            var namespace = namespace(snapshot.getConnection(), stream.getStream());
-            return namespace != null ? namespace : location.database();
-        }
-        return location.database();
-    }
-
-    private static String schema(ConnectionSnapshot snapshot, ConnectionStream stream) {
-        var location = snapshot.getDestinationLocation();
-        if (location == null || location.schemaless()) {
-            return null;
-        }
-        var namespace = namespace(snapshot.getConnection(), stream.getStream());
-        return namespace != null ? namespace : location.schema();
+        var resolved = TableLocation.of(location, namespace);
+        return resolved == null ? null : resolved.id(location.schemaless(), table);
     }
 
     // Same rules as the Fivetran plugin so the same table gets the same id: allowed characters, alphanumeric start, 150 characters at most
@@ -292,13 +274,14 @@ public final class StreamAssets {
         var config = stream.getConfig();
         var table = tableName(connection, stream);
         var source = snapshot.getSource();
+        var location = TableLocation.of(snapshot.getDestinationLocation(), namespace(connection, stream.getStream()));
 
         var metadata = new LinkedHashMap<String, Object>();
         put(metadata, "system", snapshot.getDestination() == null ? null : snapshot.getDestination().getDestinationName());
         put(metadata, "destinationName", snapshot.getDestination() == null ? null : snapshot.getDestination().getName());
         put(metadata, "destinationId", connection.getDestinationId());
-        put(metadata, "database", database(snapshot, stream));
-        put(metadata, "schema", schema(snapshot, stream));
+        put(metadata, "database", location == null ? null : location.database());
+        put(metadata, "schema", location == null ? null : location.schema());
         put(metadata, "name", table);
         put(metadata, "sourceId", connection.getSourceId());
         put(metadata, "sourceName", source == null ? null : source.getName());
