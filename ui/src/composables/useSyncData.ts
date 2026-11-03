@@ -2,7 +2,7 @@ import type { KnownSlotProps } from "@kestra-io/artifact-sdk";
 import { computed, ref, watch } from "vue";
 import { TERMINAL_STATES } from "./states";
 
-type SlotProps = KnownSlotProps["topology-details"];
+type SlotProps = KnownSlotProps["execution-artifact"];
 
 export interface StreamRow {
     name: string;

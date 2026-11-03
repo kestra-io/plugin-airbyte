@@ -70,7 +70,7 @@ const { t } = useI18n({
     },
 });
 
-// Serves both topology-task-modal and execution-artifact/details; the latter has the same props minus `progress`, which is unused here.
+// Serves the execution-artifact/details slot.
 defineOptions({ inheritAttrs: false });
 const props = defineProps<KnownSlotProps["execution-artifact"]>();
 const {
@@ -84,7 +84,7 @@ const {
     rowsSynced,
     bytesSynced,
     streams,
-} = useSyncData(props as KnownSlotProps["topology-details"]);
+} = useSyncData(props);
 
 const task = computed(() => props.task as Record<string, any> | undefined);
 const isCloud = computed(() => isCloudTask(task.value));

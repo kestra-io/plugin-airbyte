@@ -1,37 +1,16 @@
 import defaultViteConfig from "@kestra-io/artifact-sdk/vite.config";
 
-// Node base (56) + KsTopologyDetails rows (~31px each). Before a run the card shows one row on Cloud
-// tasks (connection ID) and two on self-hosted ones; with an execution it shows six rows.
-const HEIGHT_WITH_EXECUTION = 245;
-const TASKS = [
-    { type: "connections.Sync", height: 120 },
-    { type: "connections.CheckStatus", height: 120 },
-    { type: "cloud.jobs.Sync", height: 90 },
-    { type: "cloud.jobs.Reset", height: 90 },
-];
+const TASKS = ["connections.Sync", "connections.CheckStatus", "cloud.jobs.Sync", "cloud.jobs.Reset"];
 
-// A customAction with no property to show makes the host open a dialog rendering the topology-task-modal slot.
+// Only the Artifacts tab is registered: it replaces the topology cards and the details modal.
 const exposes = Object.fromEntries(
-    TASKS.map(({ type, height }) => [
+    TASKS.map((type) => [
         type,
         [
-            {
-                slotName: "topology-details",
-                path: "./src/components/SyncTopologyDetails.vue",
-                additionalProperties: {
-                    height,
-                    heightWithExecution: HEIGHT_WITH_EXECUTION,
-                    customAction: { label: "Airbyte details" },
-                },
-            },
             {
                 slotName: "execution-artifact/details",
                 path: "./src/components/SyncDetails.vue",
                 additionalProperties: { title: "Airbyte details" },
-            },
-            {
-                slotName: "topology-task-modal",
-                path: "./src/components/SyncDetails.vue",
             },
         ],
     ]),
