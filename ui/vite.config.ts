@@ -25,6 +25,11 @@ const exposes = Object.fromEntries(
                 },
             },
             {
+                slotName: "execution-artifact/details",
+                path: "./src/components/SyncDetails.vue",
+                additionalProperties: { title: "Airbyte details" },
+            },
+            {
                 slotName: "topology-task-modal",
                 path: "./src/components/SyncDetails.vue",
             },
