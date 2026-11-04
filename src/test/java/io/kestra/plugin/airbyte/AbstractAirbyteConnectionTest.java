@@ -13,16 +13,16 @@ public class AbstractAirbyteConnectionTest {
     @Inject
     protected RunContextFactory runContextFactory;
 
-    @Value("${airbyte.api.url}")
+    @Value("${airbyte.api.url:}")
     protected String url;
 
-    @Value("${airbyte.api.username}")
+    @Value("${airbyte.api.username:}")
     protected String username;
 
-    @Value("${airbyte.api.password}")
+    @Value("${airbyte.api.password:}")
     protected String password;
 
-    @Value("${airbyte.connectionId}")
+    @Value("${airbyte.connectionId:}")
     protected String connectionId;
 
     protected void assumeAirbyteIntegrationIsConfigured() {

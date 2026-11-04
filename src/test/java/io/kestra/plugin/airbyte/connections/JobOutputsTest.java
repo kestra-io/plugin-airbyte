@@ -16,8 +16,7 @@ import io.kestra.core.models.executions.metrics.Counter;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTaskException;
-import io.kestra.core.queues.QueueFactoryInterface;
-import io.kestra.core.queues.QueueInterface;
+import io.kestra.core.queues.DispatchQueueInterface;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.serializers.FileSerde;
@@ -29,7 +28,6 @@ import io.kestra.plugin.airbyte.models.JobStatus;
 import io.kestra.plugin.airbyte.models.OnPartialSuccess;
 
 import jakarta.inject.Inject;
-import jakarta.inject.Named;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -45,8 +43,7 @@ class JobOutputsTest {
     private RunContextFactory runContextFactory;
 
     @Inject
-    @Named(QueueFactoryInterface.WORKERTASKLOG_NAMED)
-    private QueueInterface<LogEntry> logQueue;
+    private DispatchQueueInterface<LogEntry> logQueue;
 
     private static String jobsGet(long id, String jobStatus, String firstAttemptStatus, String lastAttemptStatus, boolean partialSuccess) {
         return """
@@ -255,7 +252,7 @@ class JobOutputsTest {
         stubJob(75, jobsGet(75, "failed", "failed", "failed", false));
 
         var logs = new CopyOnWriteArrayList<LogEntry>();
-        var cancel = logQueue.receive(either ->
+        var cancel = logQueue.subscriber().subscribe(either ->
         {
             if (either.isLeft()) {
                 logs.add(either.getLeft());
@@ -284,7 +281,7 @@ class JobOutputsTest {
                 contains("attempt-0", "attempt-1")
             );
         } finally {
-            cancel.run();
+            cancel.close();
         }
     }
 
