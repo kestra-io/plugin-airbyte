@@ -27,7 +27,7 @@ setup((app) => {
 });
 
 const meta: Meta<typeof SyncDetails> = {
-    title: "Plugin UI / execution-artifact / SyncDetails",
+    title: "Plugin UI / topology-task-modal / SyncDetails",
     component: SyncDetails,
     tags: ["autodocs"],
 };

@@ -52,6 +52,21 @@ function settingKeys(task?: Record<string, any>): string[] {
     return type.endsWith(".CheckStatus") ? SELF_HOSTED_CHECK : SELF_HOSTED_SYNC;
 }
 
+// The two rows the topology card shows before a run: what identifies the work, and where it runs.
+export function headlineSettings(task?: Record<string, any>): Setting[] {
+    if (!task) return [];
+    const keys = isCloudTask(task)
+        ? ["connectionId"]
+        : String(task.type).endsWith(".CheckStatus")
+          ? ["jobId", "url"]
+          : ["connectionId", "url"];
+    return keys.map((key) => ({
+        key,
+        label: LABELS[key] ?? key,
+        value: task[key] === undefined || task[key] === null ? "—" : String(task[key]),
+    }));
+}
+
 // Only the authentication method is reported: credential values (token, password, client ID and
 // secret) are deliberately never read.
 export function authMethod(task?: Record<string, any>): string | undefined {
