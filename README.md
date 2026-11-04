@@ -90,7 +90,7 @@ With assets enabled (Enterprise Edition only), each replicated stream that commi
 
 ## UI
 
-On Kestra 2.0 and later, `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset` show an Airbyte details view in the Artifacts tab of the execution. It shows a status header with a link to the job in Airbyte, an alert for failed jobs, the task settings (authentication shows the method only, never credentials), the job summary, grouped failure reasons, a per-stream table with emitted and committed rows, bytes and rejected records, and the connection summary. Airbyte Cloud jobs show job totals only.
+On Kestra 2.1.0 and later, `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset` show an Airbyte details view in the Artifacts tab of the execution. It shows a status header with a link to the job in Airbyte, an alert for failed jobs, the task settings (authentication shows the method only, never credentials), the job summary, grouped failure reasons, a per-stream table with emitted and committed rows, bytes and rejected records, and the connection summary. Airbyte Cloud jobs show job totals only.
 
 The UI only displays inline outputs and metrics: the contents of the `attempts` and `connectionSnapshot` files are not shown. Kestra 1.3.x ignores the UI. See [`ui/README.md`](ui/README.md) for local development.
 

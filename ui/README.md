@@ -1,6 +1,6 @@
 # Airbyte plugin UI
 
-Vue 3 + Vite micro-frontend for the `io.kestra.plugin.airbyte` plugin. It registers only the `execution-artifact/details` slot (Artifacts tab) for `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset`. Kestra 2.0+ shows them; Kestra 1.3.x ignores them.
+Vue 3 + Vite micro-frontend for the `io.kestra.plugin.airbyte` plugin. It registers only the `execution-artifact/details` slot (Artifacts tab) for `connections.Sync`, `connections.CheckStatus`, `cloud.jobs.Sync` and `cloud.jobs.Reset`. Kestra 2.1.0+ shows them in the Artifacts tab; older versions ignore them.
 
 The components only read the task run's outputs and metrics through the `fetchOutputs` and `fetchMetrics` props. They make no HTTP call, and file outputs (`attempts`, `connectionSnapshot`) are not displayed because only their URIs are available.
 
