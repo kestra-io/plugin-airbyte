@@ -14,12 +14,14 @@ import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.property.Property;
-import io.kestra.core.queues.DispatchQueueInterface;
+import io.kestra.core.queues.QueueFactoryInterface;
+import io.kestra.core.queues.QueueInterface;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
 
 import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -36,7 +38,8 @@ class CheckStatusLogLevelTest {
     private RunContextFactory runContextFactory;
 
     @Inject
-    private DispatchQueueInterface<LogEntry> logQueue;
+    @Named(QueueFactoryInterface.WORKERTASKLOG_NAMED)
+    private QueueInterface<LogEntry> logQueue;
 
     @Test
     void keeps_warn_logs_as_warn(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
@@ -70,7 +73,7 @@ class CheckStatusLogLevelTest {
         );
 
         List<LogEntry> logs = new CopyOnWriteArrayList<>();
-        var cancel = logQueue.subscriber().subscribe(either ->
+        Runnable cancel = logQueue.receive(either ->
         {
             if (either.isLeft()) {
                 logs.add(either.getLeft());
@@ -96,7 +99,7 @@ class CheckStatusLogLevelTest {
             assertThat(levelFor(logs, "debug line"), is(Level.DEBUG));
             assertThat(levelFor(logs, "trace line"), is(Level.TRACE));
         } finally {
-            cancel.close();
+            cancel.run();
         }
     }
 

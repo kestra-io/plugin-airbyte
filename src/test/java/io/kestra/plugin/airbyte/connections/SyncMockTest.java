@@ -14,7 +14,8 @@ import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTaskException;
-import io.kestra.core.queues.DispatchQueueInterface;
+import io.kestra.core.queues.QueueFactoryInterface;
+import io.kestra.core.queues.QueueInterface;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
@@ -25,6 +26,7 @@ import io.kestra.plugin.airbyte.models.AttemptFailureOrigin;
 import io.kestra.plugin.airbyte.models.AttemptFailureType;
 
 import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -42,7 +44,8 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
     private RunContextFactory runContextFactory;
 
     @Inject
-    private DispatchQueueInterface<LogEntry> logQueue;
+    @Named(QueueFactoryInterface.WORKERTASKLOG_NAMED)
+    private QueueInterface<LogEntry> logQueue;
 
     private void stubApplicationToken() {
         stubFor(
@@ -807,7 +810,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         stubJobsGetSequence("check-unknown", "some_future_status", "some_future_status", "succeeded");
 
         var logs = new CopyOnWriteArrayList<LogEntry>();
-        var cancel = logQueue.subscriber().subscribe(either ->
+        var cancel = logQueue.receive(either ->
         {
             if (either.isLeft()) {
                 logs.add(either.getLeft());
@@ -838,7 +841,7 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
                 is(1L)
             );
         } finally {
-            cancel.close();
+            cancel.run();
         }
     }
 

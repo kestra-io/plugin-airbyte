@@ -17,7 +17,8 @@ import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTaskException;
-import io.kestra.core.queues.DispatchQueueInterface;
+import io.kestra.core.queues.QueueFactoryInterface;
+import io.kestra.core.queues.QueueInterface;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
@@ -26,6 +27,7 @@ import io.kestra.plugin.airbyte.cloud.jobs.AbstractTrigger;
 import io.kestra.plugin.airbyte.cloud.jobs.Sync;
 
 import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -46,7 +48,8 @@ class CloudRunTest {
     private RunContextFactory runContextFactory;
 
     @Inject
-    private DispatchQueueInterface<LogEntry> logQueue;
+    @Named(QueueFactoryInterface.WORKERTASKLOG_NAMED)
+    private QueueInterface<LogEntry> logQueue;
 
     // The SDK takes a server URL, and the protected client factories are reachable from this package, so no production seam is needed.
     private static Sync task(WireMockRuntimeInfo wiremock) throws Exception {
@@ -183,7 +186,7 @@ class CloudRunTest {
         );
 
         var logs = new CopyOnWriteArrayList<LogEntry>();
-        var cancel = logQueue.subscriber().subscribe(either ->
+        var cancel = logQueue.receive(either ->
         {
             if (either.isLeft()) {
                 logs.add(either.getLeft());
@@ -206,7 +209,7 @@ class CloudRunTest {
             );
             assertThat(warnings, hasSize(1));
         } finally {
-            cancel.close();
+            cancel.run();
         }
     }
 
@@ -233,7 +236,7 @@ class CloudRunTest {
         stubFor(get(urlPathMatching("/v1/(connections|sources|destinations)/.*")).willReturn(forbidden().withBody("{\"message\":\"forbidden\"}")));
 
         var logs = new CopyOnWriteArrayList<LogEntry>();
-        var cancel = logQueue.subscriber().subscribe(either ->
+        var cancel = logQueue.receive(either ->
         {
             if (either.isLeft()) {
                 logs.add(either.getLeft());
@@ -254,7 +257,7 @@ class CloudRunTest {
             verify(exactly(1), getRequestedFor(urlPathMatching("/v1/connections/.*")));
             verify(exactly(0), getRequestedFor(urlPathMatching("/v1/(sources|destinations)/.*")));
         } finally {
-            cancel.close();
+            cancel.run();
         }
     }
 }
