@@ -7,11 +7,8 @@ const TASKS = [
     { type: "cloud.jobs.Reset", height: 90 },
 ];
 
-// After a run the details card shows 6 rows (about 36px each at 11px text with 8px row padding), plus the ~30px
-// badge row the host draws under the node, so heightWithExecution no longer follows the pre-run `height`.
-const POST_EXECUTION_CONTENT_HEIGHT = 6 * 36;
-const EXECUTION_BADGE_ROW = 30;
-const HEIGHT_WITH_EXECUTION = POST_EXECUTION_CONTENT_HEIGHT + EXECUTION_BADGE_ROW;
+// Card height = ~56px header + ~31.5px per row. Pre-run `height`: 2 rows (self-hosted), 1 row (Cloud). After a run: 6 rows.
+const HEIGHT_WITH_EXECUTION = 246;
 
 // A customAction with no property to show makes the host open a dialog rendering the topology-task-modal slot.
 // Kestra 2.0.x renders the topology slots; 2.1+ ignores them and renders execution-artifact/details.

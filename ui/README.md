@@ -18,4 +18,4 @@ npm run format     # oxfmt --check
 
 Gradle runs `npm install` and `npm run build -- --outDir ../src/main/resources/plugin-ui` before packaging (`./gradlew buildUI`). It needs Node.js 18 or later on the machine.
 
-After changing a component, update `height` and `heightWithExecution` in `vite.config.ts` so they match the number of rows the card renders (about 56px plus 31px per row).
+After changing a component, update `height` and `heightWithExecution` in `vite.config.ts` so they match the number of rows the card renders (about 56px header plus 31.5px per row; the post-run card shows 6 rows, so 246).
