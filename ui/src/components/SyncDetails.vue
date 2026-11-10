@@ -73,7 +73,9 @@ const { t } = useI18n({
     },
 });
 
-const props = defineProps<KnownSlotProps["topology-task-modal"]>();
+// Serves both topology-task-modal and execution-artifact/details; the latter has the same props minus `progress`, which is unused here.
+defineOptions({ inheritAttrs: false });
+const props = defineProps<KnownSlotProps["execution-artifact"]>();
 const {
     taskRunState,
     hasExecution,
