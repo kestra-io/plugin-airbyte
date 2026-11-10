@@ -46,4 +46,6 @@ jobs:
     with:
       skip-test: ${{ github.event.inputs.skip-test == 'true' }}
       kestra-version: ${{ github.event.inputs.kestra-version }}
+      # Kestra 2.1 core is compiled for Java 25 (plugin endpoints)
+      java-version: '25'
     secrets: inherit
