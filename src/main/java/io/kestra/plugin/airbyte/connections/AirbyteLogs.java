@@ -218,10 +218,7 @@ final class AirbyteLogs implements Closeable {
         return Level.INFO;
     }
 
-    /**
-     * Drops stack trace frames, which expose connector internals, like {@code failures} drop the stack trace. The exception
-     * class and message lines are kept. {@code null} when nothing but frames or blanks remain.
-     */
+    /** Drops stack trace frames (connector internals), keeping the exception and message lines; null if nothing else remains. */
     static String sanitize(String message) {
         if (message == null || message.isEmpty()) {
             return null;

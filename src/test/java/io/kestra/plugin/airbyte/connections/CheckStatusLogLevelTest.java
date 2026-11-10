@@ -15,9 +15,11 @@ import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.queues.DispatchQueueInterface;
+import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
+import io.kestra.plugin.airbyte.TestLogs;
 
 import jakarta.inject.Inject;
 
@@ -79,22 +81,23 @@ class CheckStatusLogLevelTest {
             .jobId(Property.ofValue("970"))
             .build();
 
-        var out = task.run(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        var runContext = TestsUtils.mockRunContext(runContextFactory, task, Map.of());
+        var out = task.run(runContext);
 
         assertThat(out, notNullValue());
         assertThat(out.getFinalJobStatus(), is("succeeded"));
 
-        assertThat(levelFor(logs, "info line"), is(Level.INFO));
-        assertThat(levelFor(logs, "warn line"), is(Level.WARN));
-        assertThat(levelFor(logs, "error line"), is(Level.ERROR));
-        assertThat(levelFor(logs, "debug line"), is(Level.DEBUG));
-        assertThat(levelFor(logs, "trace line"), is(Level.TRACE));
+        assertThat(levelFor(logs, runContext, "info line"), is(Level.INFO));
+        assertThat(levelFor(logs, runContext, "warn line"), is(Level.WARN));
+        assertThat(levelFor(logs, runContext, "error line"), is(Level.ERROR));
+        assertThat(levelFor(logs, runContext, "debug line"), is(Level.DEBUG));
+        assertThat(levelFor(logs, runContext, "trace line"), is(Level.TRACE));
     }
 
-    private static Level levelFor(List<LogEntry> logs, String messageFragment) {
+    private static Level levelFor(List<LogEntry> logs, RunContext runContext, String messageFragment) {
         List<LogEntry> matching = TestsUtils.awaitLogs(
             logs,
-            logEntry -> logEntry.getMessage() != null && logEntry.getMessage().contains(messageFragment),
+            TestLogs.ownedBy(runContext).and(logEntry -> logEntry.getMessage() != null && logEntry.getMessage().contains(messageFragment)),
             1
         );
 

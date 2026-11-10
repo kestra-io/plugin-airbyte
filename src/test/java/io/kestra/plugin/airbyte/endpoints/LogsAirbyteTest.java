@@ -119,7 +119,7 @@ class LogsAirbyteTest {
 
     @Test
     void serves_the_kestra_logs_when_the_task_run_has_no_airbyte_logs() throws Exception {
-        var stub = new StubEndpointContext().output("jobId", 55L).logs(
+        var stub = new StubEndpointContext().output("airbyteAttempt", 0).logs(
             List.of(
                 LogEntry.builder().namespace("ns").flowId("flow").timestamp(BASE.plusSeconds(2)).level(Level.WARN).message("Attempt 0 failed").build(),
                 LogEntry.builder().namespace("ns").flowId("flow").timestamp(BASE.plusSeconds(1)).level(Level.INFO).message("Job started").build()
@@ -135,7 +135,7 @@ class LogsAirbyteTest {
 
     @Test
     void the_query_also_applies_to_the_kestra_logs() throws Exception {
-        var stub = new StubEndpointContext().output("jobId", 55L).logs(
+        var stub = new StubEndpointContext().output("airbyteAttempt", 0).logs(
             List.of(
                 LogEntry.builder().namespace("ns").flowId("flow").timestamp(BASE).level(Level.INFO).message("Job started").build(),
                 LogEntry.builder().namespace("ns").flowId("flow").timestamp(BASE.plusSeconds(1)).level(Level.INFO).message("Job done").build()
@@ -147,7 +147,7 @@ class LogsAirbyteTest {
 
     @Test
     void falls_back_to_the_kestra_logs_when_the_stored_file_is_missing() throws Exception {
-        var stub = new StubEndpointContext().output("jobId", 55L).output("airbyteLogs", URI).logs(
+        var stub = new StubEndpointContext().output("airbyteAttempt", 0).output("airbyteLogs", URI).logs(
             List.of(LogEntry.builder().namespace("ns").flowId("flow").timestamp(BASE).level(Level.INFO).message("Job started").build())
         );
         var json = StubEndpointContext.json(new Logs().handle(stub));

@@ -27,7 +27,7 @@ class LogsTest {
     }
 
     private static StubEndpointContext airbyteTaskRun() {
-        return new StubEndpointContext().output("jobId", 55L);
+        return new StubEndpointContext().output("airbyteAttempt", 0);
     }
 
     private static StubEndpointContext context() {
@@ -110,8 +110,8 @@ class LogsTest {
     }
 
     @Test
-    void an_attempt_sub_task_run_with_the_job_id_falls_back_to_its_kestra_logs() throws Exception {
-        var json = StubEndpointContext.json(new Logs().handle(airbyteTaskRun().output("jobId", 55L).logs(List.of(log(1, Level.ERROR, "[source/config_error] boom", 0)))));
+    void an_attempt_sub_task_run_falls_back_to_its_kestra_logs() throws Exception {
+        var json = StubEndpointContext.json(new Logs().handle(airbyteTaskRun().output("airbyteAttempt", 0).logs(List.of(log(1, Level.ERROR, "[source/config_error] boom", 0)))));
 
         assertThat(json.get("origin").asText(), is("kestra"));
         assertThat(json.get("results").get(0).get("message").asText(), is("[source/config_error] boom"));

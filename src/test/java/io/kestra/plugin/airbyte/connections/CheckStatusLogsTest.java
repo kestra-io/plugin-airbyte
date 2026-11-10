@@ -27,6 +27,7 @@ import io.kestra.core.serializers.FileSerde;
 import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
+import io.kestra.plugin.airbyte.TestLogs;
 import io.kestra.plugin.airbyte.models.AttemptRow;
 import io.kestra.plugin.airbyte.models.LogRow;
 
@@ -140,8 +141,8 @@ class CheckStatusLogsTest {
         }
     }
 
-    private List<LogEntry> logsContaining(String fragment, int expected) {
-        return TestsUtils.awaitLogs(logs, log -> log.getMessage() != null && log.getMessage().contains(fragment), expected);
+    private List<LogEntry> logsContaining(RunContext runContext, String fragment, int expected) {
+        return TestsUtils.awaitLogs(logs, TestLogs.ownedBy(runContext).and(log -> log.getMessage() != null && log.getMessage().contains(fragment)), expected);
     }
 
     @Test
@@ -175,12 +176,12 @@ class CheckStatusLogsTest {
         var runContext = runContext(task);
         var out = task.run(runContext);
 
-        assertThat(logsContaining(token + " a", 1).getFirst().getMessage(), is("[Airbyte][platform] " + token + " a"));
-        assertThat(logsContaining(token + " b", 1).getFirst().getLevel(), is(Level.WARN));
-        assertThat(logsContaining(token + " c", 1).getFirst().getLevel(), is(Level.ERROR));
-        assertThat(logsContaining(token + " c", 1).getFirst().getMessage(), is("[Airbyte][destination] " + token + " c"));
-        assertThat(logsContaining(token + " d", 1).getFirst().getMessage(), is("[Airbyte][orchestrator] " + token + " d"));
-        assertThat(logs.stream().filter(log -> log.getMessage() != null && log.getMessage().contains(token)).count(), is(4L));
+        assertThat(logsContaining(runContext, token + " a", 1).getFirst().getMessage(), is("[Airbyte][platform] " + token + " a"));
+        assertThat(logsContaining(runContext, token + " b", 1).getFirst().getLevel(), is(Level.WARN));
+        assertThat(logsContaining(runContext, token + " c", 1).getFirst().getLevel(), is(Level.ERROR));
+        assertThat(logsContaining(runContext, token + " c", 1).getFirst().getMessage(), is("[Airbyte][destination] " + token + " c"));
+        assertThat(logsContaining(runContext, token + " d", 1).getFirst().getMessage(), is("[Airbyte][orchestrator] " + token + " d"));
+        assertThat(logs.stream().filter(TestLogs.ownedBy(runContext)).filter(log -> log.getMessage() != null && log.getMessage().contains(token)).count(), is(4L));
 
         verify(3, postRequestedFor(urlPathEqualTo(LIGHT)));
         verify(1, postRequestedFor(urlPathEqualTo(ATTEMPT)));
@@ -202,15 +203,16 @@ class CheckStatusLogsTest {
         );
 
         var task = checkStatus(wiremock).build();
-        var out = task.run(runContext(task));
+        var runContext = runContext(task);
+        var out = task.run(runContext);
 
         verify(1, postRequestedFor(urlPathEqualTo(LIGHT)));
         verify(0, postRequestedFor(urlPathEqualTo(ATTEMPT)));
         verify(3, postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
         assertThat(out.getFinalJobStatus(), is("succeeded"));
-        assertThat(logsContaining(token + " a", 1).size(), is(1));
-        assertThat(logsContaining(token + " b", 1).size(), is(1));
-        assertThat(logsContaining(token + " c", 1).size(), is(1));
+        assertThat(logsContaining(runContext, token + " a", 1).size(), is(1));
+        assertThat(logsContaining(runContext, token + " b", 1).size(), is(1));
+        assertThat(logsContaining(runContext, token + " c", 1).size(), is(1));
     }
 
     @Test
@@ -219,7 +221,8 @@ class CheckStatusLogsTest {
         stubGet(job("running", attempt(0, "running", event("info", "source", "a"))), job("succeeded", attempt(0, "succeeded", event("info", "source", "a"))));
 
         var task = checkStatus(wiremock).logFrequency(Property.ofValue(Duration.ofHours(1))).build();
-        task.run(runContext(task));
+        var runContext = runContext(task);
+        task.run(runContext);
 
         verify(5, postRequestedFor(urlPathEqualTo(LIGHT)));
         verify(0, postRequestedFor(urlPathEqualTo(ATTEMPT)));
@@ -253,7 +256,7 @@ class CheckStatusLogsTest {
             rows(runContext, out.getAirbyteLogs()).stream().map(row -> row.getAttemptNumber() + ":" + row.getMessage()).toList(),
             contains("0:" + token + " first", "1:" + token + " second", "1:" + token + " third")
         );
-        assertThat(logsContaining("Previous attempt failed", 1).size(), is(1));
+        assertThat(logsContaining(runContext, "Previous attempt failed", 1).size(), is(1));
     }
 
     @Test
@@ -265,7 +268,8 @@ class CheckStatusLogsTest {
         );
 
         var task = checkStatus(wiremock).build();
-        task.run(runContext(task));
+        var runContext = runContext(task);
+        task.run(runContext);
 
         verify(6, postRequestedFor(urlPathEqualTo(LIGHT)));
         verify(0, postRequestedFor(urlPathEqualTo(ATTEMPT)));
@@ -283,12 +287,13 @@ class CheckStatusLogsTest {
         );
 
         var task = checkStatus(wiremock).build();
-        task.run(runContext(task));
+        var runContext = runContext(task);
+        task.run(runContext);
 
         verify(3, postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
         verify(0, postRequestedFor(urlPathEqualTo(ATTEMPT)));
-        assertThat(logsContaining("Previous attempt failed", 1).size(), is(1));
-        assertThat(logsContaining(token + " second", 1).size(), is(1));
+        assertThat(logsContaining(runContext, "Previous attempt failed", 1).size(), is(1));
+        assertThat(logsContaining(runContext, token + " second", 1).size(), is(1));
     }
 
     @Test
@@ -302,7 +307,7 @@ class CheckStatusLogsTest {
         var out = task.run(runContext);
 
         assertThat(rows(runContext, out.getAirbyteLogs()).size(), is(2));
-        assertThat(logsContaining("Unable to fetch the live Airbyte logs", 1).size(), is(1));
+        assertThat(logsContaining(runContext, "Unable to fetch the live Airbyte logs", 1).size(), is(1));
     }
 
     @Test
@@ -332,7 +337,7 @@ class CheckStatusLogsTest {
             assertThat(attempts.stream().map(AttemptRow::getCreatedAt).toList(), contains(Instant.ofEpochSecond(1700000000), Instant.ofEpochSecond(1700000100)));
         }
 
-        assertThat(logsContaining("Backing off", 1).getFirst().getLevel(), is(Level.WARN));
+        assertThat(logsContaining(runContext, "Backing off", 1).getFirst().getLevel(), is(Level.WARN));
     }
 
     @Test
@@ -348,8 +353,8 @@ class CheckStatusLogsTest {
         assertThat(rows.size(), is(8));
         assertThat(rows.stream().map(LogRow::getLogSource).distinct().sorted().toList(), contains("destination", "platform", "replication-orchestrator", "source"));
         assertThat(rows.stream().allMatch(row -> row.getTimestamp() != null && row.getAttemptNumber() == 0), is(true));
-        assertThat(logsContaining("[Airbyte][destination] ", 1).isEmpty(), is(false));
-        assertThat(logsContaining("[Airbyte][orchestrator] ", 1).isEmpty(), is(false));
+        assertThat(logsContaining(runContext, "[Airbyte][destination] ", 1).isEmpty(), is(false));
+        assertThat(logsContaining(runContext, "[Airbyte][orchestrator] ", 1).isEmpty(), is(false));
     }
 
     @Test
@@ -362,7 +367,7 @@ class CheckStatusLogsTest {
         var out = task.run(runContext);
 
         assertThat(rows(runContext, out.getAirbyteLogs()).size(), is(3));
-        assertThat(logsContaining("maxLogEvents", 1).size(), is(1));
+        assertThat(logsContaining(runContext, "maxLogEvents", 1).size(), is(1));
     }
 
     @Test
@@ -371,7 +376,8 @@ class CheckStatusLogsTest {
         stubGet(job("running", attempt(0, "running", event("info", "source", "a"))), job("succeeded", attempt(0, "succeeded", event("info", "source", "a"))));
 
         var task = checkStatus(wiremock).maxLogEvents(Property.ofValue(0)).build();
-        var out = task.run(runContext(task));
+        var runContext = runContext(task);
+        var out = task.run(runContext);
 
         assertThat(out.getAirbyteLogs(), is(nullValue()));
         verify(0, postRequestedFor(urlPathEqualTo(ATTEMPT)));
@@ -388,10 +394,11 @@ class CheckStatusLogsTest {
         );
 
         var task = checkStatus(wiremock).platformLogLevel(Property.ofValue(Level.DEBUG)).build();
-        var out = task.run(runContext(task));
+        var runContext = runContext(task);
+        var out = task.run(runContext);
 
-        assertThat(logsContaining(token + " noise", 1).getFirst().getLevel(), is(Level.DEBUG));
-        assertThat(logsContaining(token + " records", 1).getFirst().getLevel(), is(Level.INFO));
+        assertThat(logsContaining(runContext, token + " noise", 1).getFirst().getLevel(), is(Level.DEBUG));
+        assertThat(logsContaining(runContext, token + " records", 1).getFirst().getLevel(), is(Level.INFO));
         assertThat(out.getAirbyteLogs(), is(notNullValue()));
     }
 
@@ -423,10 +430,11 @@ class CheckStatusLogsTest {
         );
 
         var task = checkStatus(wiremock).maxLogEvents(Property.ofValue(0)).build();
-        var out = task.run(runContext(task));
+        var runContext = runContext(task);
+        var out = task.run(runContext);
 
         assertThat(out.getAirbyteLogs(), is(nullValue()));
-        assertThat(logsContaining("Previous attempt failed", 1).size(), is(1));
+        assertThat(logsContaining(runContext, "Previous attempt failed", 1).size(), is(1));
         verify(0, postRequestedFor(urlPathEqualTo(ATTEMPT)));
     }
 
@@ -456,7 +464,7 @@ class CheckStatusLogsTest {
         var runContext = runContext(task);
         var out = task.run(runContext);
 
-        assertThat(logsContaining("Previous attempt failed", 1).size(), is(1));
+        assertThat(logsContaining(runContext, "Previous attempt failed", 1).size(), is(1));
         assertThat(
             rows(runContext, out.getAirbyteLogs()).stream().map(LogRow::getMessage).toList(),
             contains(token + " first", token + " second")

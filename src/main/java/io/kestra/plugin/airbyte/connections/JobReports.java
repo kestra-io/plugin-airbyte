@@ -132,7 +132,7 @@ final class JobReports {
         return runContext.storage().putFile(file);
     }
 
-    // The worker drops WorkerTaskResult outputs of dynamic task runs, so the `jobId` marker read by the `logs` endpoint goes on the TaskRun.
+    // The worker drops WorkerTaskResult outputs of dynamic task runs, so the marker read by the `logs` endpoint goes on the TaskRun.
     @SuppressWarnings("deprecation")
     static void emitAttemptTaskRuns(RunContext runContext, JobInfo jobInfo, List<AttemptRow> rows) {
         var parentTaskRunId = variable(runContext, "taskrun", "id");
@@ -151,7 +151,7 @@ final class JobReports {
 
             var taskRun = TaskRun.builder()
                 .id(IdUtils.create())
-                .outputs(Map.of("jobId", jobInfo.getJob().getId()))
+                .outputs(Map.of("jobId", jobInfo.getJob().getId(), AttemptRow.TASK_RUN_MARKER, row.getAttemptNumber()))
                 .namespace(variable(runContext, "flow", "namespace"))
                 .flowId(variable(runContext, "flow", "id"))
                 .taskId("attempt-" + row.getAttemptNumber())

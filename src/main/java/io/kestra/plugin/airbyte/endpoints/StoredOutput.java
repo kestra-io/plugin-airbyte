@@ -7,27 +7,24 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.kestra.core.plugins.endpoint.PluginEndpointContext;
+import io.kestra.plugin.airbyte.models.AttemptRow;
 
 final class StoredOutput {
     private StoredOutput() {
     }
 
-    /**
-     * Whether the task run is an Airbyte one: Airbyte tasks and their {@code attempt-N} sub task runs output a {@code jobId},
-     * and {@code CheckStatus} outputs the {@code job} summary. Other tasks of the execution must not be readable through the endpoints.
-     */
+    // `jobId` alone is too common (BigQuery...): require the attempt marker, the `job` summary or the `wait: false` Sync flags.
     static boolean isAirbyteTaskRun(PluginEndpointContext context) {
         var outputs = context.outputs().get();
         if (outputs == null) {
             return false;
         }
-        return outputs.get("jobId") != null || (outputs.get("job") instanceof Map<?, ?> job && job.containsKey("attemptCount"));
+        return outputs.containsKey(AttemptRow.TASK_RUN_MARKER)
+            || (outputs.get("job") instanceof Map<?, ?> job && job.containsKey("attemptCount"))
+            || (outputs.get("jobId") != null && outputs.get("alreadyRunning") != null && outputs.get("adopted") != null);
     }
 
-    /**
-     * Opens the internal storage file referenced by a task run output, empty when the output or the file does not exist.
-     * The scoped storage rejects any URI outside the execution, which is treated the same as a missing file.
-     */
+    // A URI outside the execution is rejected by the scoped storage and treated like a missing file.
     static Optional<InputStream> open(PluginEndpointContext context, String outputName) {
         var outputs = context.outputs().get();
         if (outputs == null || !(outputs.get(outputName) instanceof String value) || value.isBlank()) {

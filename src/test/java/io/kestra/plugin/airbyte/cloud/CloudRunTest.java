@@ -26,6 +26,7 @@ import io.kestra.core.runners.AssetEmitter;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
+import io.kestra.plugin.airbyte.TestLogs;
 import io.kestra.plugin.airbyte.cloud.jobs.AbstractTrigger;
 import io.kestra.plugin.airbyte.cloud.jobs.Sync;
 
@@ -243,7 +244,8 @@ class CloudRunTest {
         Mockito.verify(runContext, Mockito.atLeastOnce()).assets();
 
         var warnings = TestsUtils.awaitLogs(
-            logs, log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Could not read the Airbyte Cloud source src-1"), 1
+            logs,
+            TestLogs.ownedBy(runContext).and(log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Could not read the Airbyte Cloud source src-1")), 1
         );
         assertThat(warnings, hasSize(1));
     }
@@ -274,13 +276,17 @@ class CloudRunTest {
         logQueue.addListener(logs::add);
 
         var task = task(wiremock);
-        var out = task.run(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        var runContext = TestsUtils.mockRunContext(runContextFactory, task, Map.of());
+        var out = task.run(runContext);
 
         assertThat(out.getJob().getRowsSynced(), is(20L));
         assertThat(out.getConnection(), nullValue());
         assertThat(out.getJobUrl(), nullValue());
         var warnings = TestsUtils.awaitLogs(
-            logs, log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Unable to read connection " + CONNECTION_ID + " from Airbyte Cloud"), 1
+            logs,
+            TestLogs.ownedBy(runContext)
+                .and(log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Unable to read connection " + CONNECTION_ID + " from Airbyte Cloud")),
+            1
         );
         assertThat(warnings, hasSize(1));
         verify(exactly(1), getRequestedFor(urlPathMatching("/v1/connections/.*")));

@@ -21,6 +21,7 @@ import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnection;
 import io.kestra.plugin.airbyte.AbstractAirbyteConnectionTest;
+import io.kestra.plugin.airbyte.TestLogs;
 import io.kestra.plugin.airbyte.models.AttemptFailureOrigin;
 import io.kestra.plugin.airbyte.models.AttemptFailureType;
 
@@ -881,7 +882,8 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
             .id(IdUtils.create())
             .type(CheckStatus.class.getName())
             .build();
-        var out = task.run(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        var runContext = TestsUtils.mockRunContext(runContextFactory, task, Map.of());
+        var out = task.run(runContext);
 
         assertThat(out.getFinalJobStatus(), is("succeeded"));
         verify(exactly(3), postRequestedFor(urlPathMatching("/api/v1/jobs/get/?")));
@@ -889,14 +891,14 @@ class SyncMockTest extends AbstractAirbyteConnectionTest {
         // Two polls returned the unknown status, yet the warning must be emitted only once
         var warnings = TestsUtils.awaitLogs(
             logs,
-            log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("not recognised"),
+            TestLogs.ownedBy(runContext).and(log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("not recognised")),
             1
         );
         assertThat(warnings.size(), is(1));
         assertThat(warnings.getFirst().getMessage(), containsString("400"));
         assertThat(warnings.getFirst().getMessage(), containsString("maxDuration"));
         assertThat(
-            logs.stream().filter(log -> log.getMessage() != null && log.getMessage().contains("not recognised")).count(),
+            logs.stream().filter(TestLogs.ownedBy(runContext)).filter(log -> log.getMessage() != null && log.getMessage().contains("not recognised")).count(),
             is(1L)
         );
     }

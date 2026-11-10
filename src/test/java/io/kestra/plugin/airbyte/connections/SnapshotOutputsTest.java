@@ -30,6 +30,7 @@ import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
 import io.kestra.plugin.airbyte.StreamAssets;
+import io.kestra.plugin.airbyte.TestLogs;
 import io.kestra.plugin.airbyte.models.OnPartialSuccess;
 
 import jakarta.inject.Inject;
@@ -470,7 +471,8 @@ class SnapshotOutputsTest {
         logQueue.addListener(logs::add);
 
         var task = sync(wiremock).build();
-        var out = task.run(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        var runContext = TestsUtils.mockRunContext(runContextFactory, task, Map.of());
+        var out = task.run(runContext);
 
         assertThat(out.getJob().getStatus().toString(), is("succeeded"));
         assertThat(out.getConnection(), nullValue());
@@ -480,7 +482,7 @@ class SnapshotOutputsTest {
 
         var warnings = TestsUtils.awaitLogs(
             logs,
-            log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Unable to read the configuration of connection"),
+            TestLogs.ownedBy(runContext).and(log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Unable to read the configuration of connection")),
             1
         );
         assertThat(warnings.getFirst().getMessage(), containsString(CONNECTION_ID));

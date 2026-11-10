@@ -108,19 +108,12 @@ public final class StreamAssets {
         return planned;
     }
 
-    /**
-     * Result of {@link #emit}: the task is expected to end in {@code state} when not null, and to fail with {@code failure} when
-     * not null (only under the {@code FAIL} behavior).
-     */
+    /** Outcome of {@link #emit}: the task ends in {@code state} if set, and fails with {@code failure} if set. */
     public record Outcome(State.Type state, Exception failure) {
         public static final Outcome NONE = new Outcome(null, null);
     }
 
-    /**
-     * Builds and emits the assets, applying {@code assets.assetFailureBehavior} since core never routes an exception thrown by
-     * {@code run()} through it. An unsupported emitter (OSS) is skipped silently. Nothing is built unless {@code assets.enableAuto}
-     * is on, as the emitter drops the assets otherwise.
-     */
+    /** Applies {@code assetFailureBehavior} here because core never routes an exception thrown by {@code run()} through it. */
     public static Outcome emit(RunContext runContext, Task task, String connectionId, Supplier<List<Planned>> planner) {
         // Core skips asset processing entirely without a declaration or without enableAuto, so do the same
         if (task.getAssets() == null || !autoEnabled(runContext, task.getAssets())) {

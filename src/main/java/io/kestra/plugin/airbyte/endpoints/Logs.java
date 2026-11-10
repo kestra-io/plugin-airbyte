@@ -117,9 +117,9 @@ public class Logs implements PluginEndpoint {
     record Line(Instant timestamp, Level level, String message, Integer attempt, String source) {
     }
 
-    record Response(String origin, int page, int size, long total, List<Line> results) {
+    record Response(String origin, int page, int size, long total, boolean totalCapped, List<Line> results) {
         static Response of(String origin, EndpointPage<Line> page) {
-            return new Response(origin, page.page(), page.size(), page.total(), page.results());
+            return new Response(origin, page.page(), page.size(), page.total(), page.totalCapped(), page.results());
         }
     }
 }

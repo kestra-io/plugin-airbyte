@@ -306,7 +306,7 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         Logger logger = runContext.logger();
         String rConnectionId = runContext.render(this.connectionId).as(String.class).orElseThrow();
         OnActiveSync policy = resolveOnActiveSyncPolicy(runContext);
-        var rWait = runContext.render(this.wait).as(Boolean.class).orElseThrow();
+        var rWait = runContext.render(this.wait).as(Boolean.class).orElse(true);
         if (rWait) {
             // Fail fast: once the job is triggered, a late validation error would leave it running with no jobId output
             CheckStatus.renderMaxLogEvents(runContext, this.maxLogEvents);

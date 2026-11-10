@@ -152,7 +152,7 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
         var snapshot = fetchSnapshot(runContext, rConnectionId);
 
-        if (!runContext.render(this.wait).as(Boolean.class).orElseThrow()) {
+        if (!runContext.render(this.wait).as(Boolean.class).orElse(true)) {
             return outputOf(runContext, createJob, snapshot, null);
         }
 
@@ -172,8 +172,8 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
 
                 return null;
             }),
-            runContext.render(this.pollFrequency).as(Duration.class).orElseThrow(),
-            runContext.render(this.maxDuration).as(Duration.class).orElseThrow()
+            runContext.render(this.pollFrequency).as(Duration.class).orElse(Duration.ofSeconds(1)),
+            runContext.render(this.maxDuration).as(Duration.class).orElse(Duration.ofMinutes(60))
         );
 
         finalJobResponse.bytesSynced()

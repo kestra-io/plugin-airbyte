@@ -56,11 +56,7 @@ public final class CloudSnapshots {
             .build();
     }
 
-    /**
-     * The Cloud API does not report the namespace of a stream, so the destination default schema is only right when the connection writes
-     * there. For a {@code source} namespace or a custom format using {@code ${SOURCE_NAMESPACE}} the location stays null and asset ids fall
-     * back to the destination ID.
-     */
+    // The Cloud API reports no stream namespace, so the default schema is only right when the connection writes there; otherwise null.
     private static ConnectorLocation location(ConnectionResponse connection, DestinationResponse destination) {
         if (destination == null) {
             return null;

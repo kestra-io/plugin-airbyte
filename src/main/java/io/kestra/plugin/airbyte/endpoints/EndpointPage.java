@@ -9,18 +9,17 @@ import io.kestra.core.plugins.endpoint.PluginEndpointContext;
 /**
  * Pagination envelope shared by the endpoints. {@code page} is one-based, matching the Kestra API.
  */
-record EndpointPage<T>(int page, int size, long total, List<T> results) {
+record EndpointPage<T>(int page, int size, long total, boolean totalCapped, List<T> results) {
 
     static final int DEFAULT_SIZE = 50;
     static final int MAX_SIZE = 500;
+    static final int MAX_COUNTED = 10_000;
 
     static <T> EndpointPage<T> of(PluginEndpointContext context, List<T> all) {
         return of(context, Stream.ofNullable(all).flatMap(List::stream));
     }
 
-    /**
-     * Single pass over {@code rows}, which is closed: counts every row for {@code total} and only keeps the requested window.
-     */
+    /** Single pass over {@code rows} (closed after): counts up to {@link #MAX_COUNTED} rows, but always until the requested window is full. */
     static <T> EndpointPage<T> of(PluginEndpointContext context, Stream<T> rows) {
         var size = Math.min(positiveInt(context.param("size"), DEFAULT_SIZE), MAX_SIZE);
         var page = positiveInt(context.param("page"), 1);
@@ -28,9 +27,14 @@ record EndpointPage<T>(int page, int size, long total, List<T> results) {
 
         var window = new ArrayList<T>();
         var total = 0L;
+        var capped = false;
         try (rows) {
             var iterator = rows.iterator();
             while (iterator.hasNext()) {
+                if (total >= MAX_COUNTED && window.size() >= size) {
+                    capped = true;
+                    break;
+                }
                 var row = iterator.next();
                 if (total >= skip && window.size() < size) {
                     window.add(row);
@@ -39,7 +43,7 @@ record EndpointPage<T>(int page, int size, long total, List<T> results) {
             }
         }
 
-        return new EndpointPage<>(page, size, total, List.copyOf(window));
+        return new EndpointPage<>(page, size, total, capped, List.copyOf(window));
     }
 
     private static int positiveInt(String value, int fallback) {

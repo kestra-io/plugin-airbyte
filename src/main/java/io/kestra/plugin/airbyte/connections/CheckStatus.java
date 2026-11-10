@@ -308,8 +308,8 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
                     poller.liveAttempt(jobStatus);
                     return null;
                 }),
-                runContext.render(this.pollFrequency).as(Duration.class).orElseThrow(),
-                runContext.render(this.maxDuration).as(Duration.class).orElseThrow()
+                runContext.render(this.pollFrequency).as(Duration.class).orElse(Duration.ofSeconds(1)),
+                runContext.render(this.maxDuration).as(Duration.class).orElse(Duration.ofMinutes(60))
             );
 
             finalJobStatus = poller.finalStatus(endedJobStatus);
@@ -519,11 +519,7 @@ public class CheckStatus extends AbstractAirbyteConnection implements RunnableTa
     private record StreamKey(String name, String namespace) {
     }
 
-    /**
-     * Polls the job status and streams the Airbyte logs. Status goes through the lightweight {@code jobs/get_light}, which
-     * carries no attempts or logs, with a sticky fallback to {@code jobs/get} on Airbyte versions that lack it. The logs of the
-     * running attempt are fetched on their own, at most once per {@code logFrequency}.
-     */
+    // Status uses the light jobs/get_light endpoint (no attempts or logs), falling back to jobs/get on versions that lack it.
     private final class JobPoller {
         private final RunContext runContext;
         private final Logger logger;

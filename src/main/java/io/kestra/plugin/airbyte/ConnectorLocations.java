@@ -14,13 +14,7 @@ public final class ConnectorLocations {
     private ConnectorLocations() {
     }
 
-    /**
-     * Location of a destination. Never throws: an unreadable or unknown configuration only means asset ids fall back to the Airbyte
-     * destination ID.
-     *
-     * @param connectorType the connector name, such as {@code Snowflake} on self-hosted or {@code snowflake} on Airbyte Cloud
-     * @param configuration the raw connector configuration, a map or an SDK model
-     */
+    /** Never throws: an unreadable or unknown configuration falls back to the destination ID in asset ids. */
     public static Optional<ConnectorLocation> parse(String connectorType, Object configuration) {
         return parse(connectorType, configuration, false);
     }

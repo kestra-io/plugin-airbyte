@@ -22,6 +22,7 @@ import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.serializers.FileSerde;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
+import io.kestra.plugin.airbyte.TestLogs;
 import io.kestra.plugin.airbyte.models.AttemptRow;
 import io.kestra.plugin.airbyte.models.AttemptStatus;
 import io.kestra.plugin.airbyte.models.JobStatus;
@@ -269,8 +270,8 @@ class JobOutputsTest {
             assertThat(file, not(containsString("SECRET-")));
         }
 
-        TestsUtils.awaitLogs(logs, log -> log.getMessage() != null && log.getMessage().contains("Connection reset by source"), 1);
-        assertThat(logs.stream().filter(log -> log.getMessage() != null && log.getMessage().contains("SECRET-")).count(), is(0L));
+        TestsUtils.awaitLogs(logs, TestLogs.ownedBy(runContext).and(log -> log.getMessage() != null && log.getMessage().contains("Connection reset by source")), 1);
+        assertThat(logs.stream().filter(TestLogs.ownedBy(runContext)).filter(log -> log.getMessage() != null && log.getMessage().contains("SECRET-")).count(), is(0L));
         assertThat(
             runContext.dynamicWorkerResults().stream().map(result -> result.getTaskRun().getTaskId()).toList(),
             contains("attempt-0", "attempt-1")

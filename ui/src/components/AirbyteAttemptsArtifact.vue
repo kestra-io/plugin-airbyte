@@ -9,10 +9,11 @@ export const getSubtitle = attemptsSubtitle;
 import type { KnownSlotProps } from "@kestra-io/artifact-sdk";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { KsPagination, KsTag } from "@kestra-io/design-system";
+import { KsTag } from "@kestra-io/design-system";
 import { formatBytes, formatDateTime, formatDuration, formatNumber } from "../composables/format";
 import { useEndpoint } from "../composables/useEndpoint";
 import ArtifactFrame from "./ArtifactFrame.vue";
+import ArtifactPager from "./ArtifactPager.vue";
 
 const PAGE_SIZE = 50;
 
@@ -31,6 +32,7 @@ interface AttemptsPage {
     page: number;
     size: number;
     total: number;
+    totalCapped?: boolean;
     results: AttemptRow[];
 }
 
@@ -122,15 +124,6 @@ const durationOf = (attempt: AttemptRow) => {
             </table>
         </div>
 
-        <div class="airbyte-artifact__pager">
-            <KsPagination
-                v-model:current-page="page"
-                :page-size="PAGE_SIZE"
-                :total="data?.total ?? 0"
-                layout="total, prev, pager, next"
-                size="small"
-                hide-on-single-page
-            />
-        </div>
+        <ArtifactPager v-model:page="page" :data="data" :page-size="PAGE_SIZE" />
     </ArtifactFrame>
 </template>
