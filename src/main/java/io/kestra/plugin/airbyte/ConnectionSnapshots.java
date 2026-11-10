@@ -6,20 +6,27 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiFunction;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.airbyte.models.Connection;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
+import io.kestra.plugin.airbyte.models.ConnectorLocation;
 import io.kestra.plugin.airbyte.models.Destination;
 import io.kestra.plugin.airbyte.models.Source;
 
 /**
- * Reads the connection, source and destination through the documented config API. The response models only declare non-secret
- * fields, so connector configurations cannot reach the snapshot.
+ * Reads the connection, source and destination through the documented config API. The snapshot models only declare non-secret
+ * fields, so connector configurations cannot reach the snapshot. Only the location keys are read from the destination and source
+ * configurations, into fields that are never serialized.
  */
 public final class ConnectionSnapshots {
+    private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
+
     private ConnectionSnapshots() {
     }
 
@@ -27,10 +34,27 @@ public final class ConnectionSnapshots {
         try {
             var baseUrl = task.baseUrl(runContext);
             var connection = post(task, runContext, baseUrl + "/api/v1/connections/get", Map.of("connectionId", connectionId), Connection.class);
-            var source = post(task, runContext, baseUrl + "/api/v1/sources/get", Map.of("sourceId", connection.getSourceId()), Source.class);
-            var destination = post(task, runContext, baseUrl + "/api/v1/destinations/get", Map.of("destinationId", connection.getDestinationId()), Destination.class);
+            var sourceResponse = post(task, runContext, baseUrl + "/api/v1/sources/get", Map.of("sourceId", connection.getSourceId()), Map.class);
+            var source = MAPPER.convertValue(sourceResponse, Source.class);
+            var destinationResponse = post(task, runContext, baseUrl + "/api/v1/destinations/get", Map.of("destinationId", connection.getDestinationId()), Map.class);
+            var destination = MAPPER.convertValue(destinationResponse, Destination.class);
 
-            return Optional.of(ConnectionSnapshot.builder().connection(connection).source(source).destination(destination).build());
+            return Optional.of(
+                ConnectionSnapshot.builder().connection(connection).source(source).destination(destination)
+                    .destinationLocation(
+                        location(
+                            runContext, ConnectorLocations::parse, destination.getDestinationName(), destinationResponse, "destination", destination.getDestinationId(),
+                            "asset ids fall back to the Airbyte destination ID"
+                        )
+                    )
+                    .sourceLocation(
+                        location(
+                            runContext, ConnectorLocations::parseSource, source.getSourceName(), sourceResponse, "source", source.getSourceId(),
+                            "asset inputs fall back to the Airbyte source ID"
+                        )
+                    )
+                    .build()
+            );
         } catch (Exception e) {
             runContext.logger().warn(
                 "Unable to read the configuration of connection {}, continuing without connection snapshot, job link and assets: {}. Check that the credentials can read connections, sources and destinations",
@@ -38,6 +62,16 @@ public final class ConnectionSnapshots {
             );
             return Optional.empty();
         }
+    }
+
+    private static ConnectorLocation location(
+        RunContext runContext, BiFunction<String, Object, Optional<ConnectorLocation>> parser, String connectorType, Object response, String side,
+        String id, String fallback) {
+        var location = parser.apply(connectorType, ((Map<?, ?>) response).get("connectionConfiguration"));
+        if (location.isEmpty()) {
+            runContext.logger().debug("No {} location resolved for {} {}, {}", side, side, id, fallback);
+        }
+        return location.orElse(null);
     }
 
     public static URI store(RunContext runContext, ConnectionSnapshot snapshot) throws IOException {

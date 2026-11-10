@@ -10,6 +10,7 @@ import {
     cloudTask,
     configuredTask,
     failedOutputs,
+    finishedExecution,
     fetchers,
     manyStreamsOutputs,
     repeatedFailureOutputs,
@@ -96,6 +97,25 @@ export const Succeeded: Story = {
         expect(canvas.queryByText(/Failure reasons/)).toBeNull();
         expect(canvas.queryByText(/^Airbyte job/)).toBeNull();
         expect(canvas.getByText("Connection")).toBeInTheDocument();
+    },
+};
+
+export const FinishedExecution: Story = {
+    name: "Finished execution renders the job summary",
+    args: {
+        task,
+        ...flow,
+        execution: finishedExecution,
+        fetchOutputs: async () => succeededOutputs,
+        fetchMetrics: async () => ({ results: [], total: 0 }),
+    } as any,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        await waitFor(() => expect(canvas.getByText("Streams (3)")).toBeInTheDocument());
+        expect(canvas.getByText("SUCCEEDED")).toBeInTheDocument();
+        expect(canvas.getByText("Job")).toBeInTheDocument();
+        expect(canvas.getByText("Connection")).toBeInTheDocument();
+        expect(canvas.getByText("Open the job in Airbyte")).toBeInTheDocument();
     },
 };
 

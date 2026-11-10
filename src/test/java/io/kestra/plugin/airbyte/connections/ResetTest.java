@@ -80,13 +80,15 @@ class ResetTest {
         );
 
         var task = task(wm)
-            .streams(List.of(
-                Reset.StreamSelection.builder()
-                    .streamName(Property.ofExpression("{{ vars.stream }}"))
-                    .streamNamespace(Property.ofExpression("{{ vars.schema }}"))
-                    .build(),
-                stream("orders", null)
-            ))
+            .streams(
+                List.of(
+                    Reset.StreamSelection.builder()
+                        .streamName(Property.ofExpression("{{ vars.stream }}"))
+                        .streamNamespace(Property.ofExpression("{{ vars.schema }}"))
+                        .build(),
+                    stream("orders", null)
+                )
+            )
             .build();
 
         var output = task.run(runContextFactory.of(Map.of("vars", Map.of("stream", "customers", "schema", "public"))));
@@ -120,8 +122,10 @@ class ResetTest {
                 .willReturn(aResponse().withStatus(409).withBody("{\"message\":\"A job is already running for this connection\"}"))
         );
 
-        var e = assertThrows(IllegalStateException.class, () -> task(wm).streams(List.of(stream("customers", "public"))).build()
-            .run(runContextFactory.of(Map.of())));
+        var e = assertThrows(
+            IllegalStateException.class, () -> task(wm).streams(List.of(stream("customers", "public"))).build()
+                .run(runContextFactory.of(Map.of()))
+        );
         assertThat(e.getMessage(), containsString(CONNECTION_ID));
     }
 
@@ -132,8 +136,10 @@ class ResetTest {
                 .willReturn(aResponse().withStatus(422).withBody("{\"message\":\"Stream does not exist\"}"))
         );
 
-        var e = assertThrows(IllegalStateException.class, () -> task(wm).streams(List.of(stream("missing", "public"))).build()
-            .run(runContextFactory.of(Map.of())));
+        var e = assertThrows(
+            IllegalStateException.class, () -> task(wm).streams(List.of(stream("missing", "public"))).build()
+                .run(runContextFactory.of(Map.of()))
+        );
 
         assertThat(e.getMessage(), containsString("422"));
         assertThat(e.getMessage(), containsString(CONNECTION_ID));

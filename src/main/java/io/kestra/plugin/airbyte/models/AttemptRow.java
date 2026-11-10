@@ -13,6 +13,8 @@ import lombok.extern.jackson.Jacksonized;
 @SuperBuilder
 @Schema(title = "Airbyte attempt", description = "One row of the `attempts` file, describing a single attempt of the job")
 public class AttemptRow {
+    public static final String TASK_RUN_MARKER = "airbyteAttempt";
+
     @Schema(title = "Attempt number", description = "Zero-based position of the attempt within the job")
     Integer attemptNumber;
 

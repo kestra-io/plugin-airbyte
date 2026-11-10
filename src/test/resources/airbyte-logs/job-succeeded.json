@@ -1,0 +1,134 @@
+{
+  "job": {
+    "id": 18,
+    "configType": "sync",
+    "configId": "00000000-0000-0000-0000-000000000000",
+    "status": "succeeded",
+    "createdAt": 1700000000,
+    "updatedAt": 1700000060
+  },
+  "attempts": [
+    {
+      "attempt": {
+        "id": 0,
+        "status": "succeeded",
+        "createdAt": 1700000001,
+        "endedAt": 1700000050,
+        "bytesSynced": 1024,
+        "recordsSynced": 300,
+        "streamStats": [
+          {
+            "streamName": "products",
+            "stats": {
+              "recordsEmitted": 100,
+              "recordsCommitted": 100
+            }
+          }
+        ]
+      },
+      "logType": "structured",
+      "logs": {
+        "version": 1,
+        "logLines": [],
+        "events": [
+          {
+            "timestamp": 1792496783928,
+            "level": "info",
+            "logSource": "platform",
+            "message": "APPLY Stage: BUILD — (workloadId=00000000-0000-0000-0000-000000000000_18_0_check)",
+            "caller": {
+              "className": "io.airbyte.workload.launcher.pipeline.stages.model.Stage",
+              "methodName": "apply",
+              "lineNumber": 42,
+              "threadName": "default-11"
+            }
+          },
+          {
+            "timestamp": 1792496793657,
+            "level": "info",
+            "logSource": "platform",
+            "message": "\r\n----- END CHECK -----\r\n\r\n",
+            "caller": {
+              "className": "io.airbyte.connectorSidecar.ConnectorWatcher",
+              "methodName": "run",
+              "lineNumber": 118,
+              "threadName": "main"
+            }
+          },
+          {
+            "timestamp": 1792496801357,
+            "level": "info",
+            "logSource": "destination",
+            "message": "INFO main i.a.c.AirbyteConnectorRunnable(run):47 Flushing output consumer prior to shutdown.",
+            "caller": {
+              "className": "io.airbyte.workers.internal.VersionedAirbyteStreamFactory",
+              "methodName": "internalLog$io_airbyte_oss_airbyte_commons_worker",
+              "lineNumber": 246,
+              "threadName": "main"
+            }
+          },
+          {
+            "timestamp": 1792496809903,
+            "level": "info",
+            "logSource": "platform",
+            "message": "[source] image: airbyte/source-faker:7.2.1 resources: ResourceRequirements(claims=[], limits={memory=4Gi, cpu=4.0}, requests={memory=0, cpu=1.0}, additionalProperties={})",
+            "caller": {
+              "className": "io.airbyte.workload.launcher.pods.KubePodClient",
+              "methodName": "launchReplication",
+              "lineNumber": 106,
+              "threadName": "default-14"
+            }
+          },
+          {
+            "timestamp": 1792496822162,
+            "level": "info",
+            "logSource": "replication-orchestrator",
+            "message": "Stream completed: null.products",
+            "caller": {
+              "className": "io.airbyte.container.orchestrator.tracker.StreamStatusCompletionTracker",
+              "methodName": "track",
+              "lineNumber": 49,
+              "threadName": "pool-4-thread-1"
+            }
+          },
+          {
+            "timestamp": 1792496822205,
+            "level": "info",
+            "logSource": "source",
+            "message": "Finished syncing SourceFaker",
+            "caller": {
+              "className": "io.airbyte.workers.internal.VersionedAirbyteStreamFactory",
+              "methodName": "internalLog$io_airbyte_oss_airbyte_commons_worker",
+              "lineNumber": 246,
+              "threadName": "pool-4-thread-1"
+            }
+          },
+          {
+            "timestamp": 1792496832460,
+            "level": "info",
+            "logSource": "replication-orchestrator",
+            "message": "DestinationWriter finished.",
+            "caller": {
+              "className": "io.airbyte.container.orchestrator.worker.DestinationWriter",
+              "methodName": "run",
+              "lineNumber": 112,
+              "threadName": "pool-4-thread-3"
+            }
+          },
+          {
+            "timestamp": 1792496833455,
+            "level": "info",
+            "logSource": "platform",
+            "message": "\r\n----- END POST REPLICATION OPERATIONS -----\r\n\r\n",
+            "caller": {
+              "className": "io.airbyte.workers.temporal.sync.InvokeOperationsActivityImpl",
+              "methodName": "invokeOperationsV2",
+              "lineNumber": 99,
+              "threadName": "Activity Executor taskQueue=\"SYNC\", namespace=\"default\": 3"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

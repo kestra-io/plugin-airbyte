@@ -1,8 +1,9 @@
 import type { KnownSlotProps } from "@kestra-io/artifact-sdk";
-import { computed, ref, watch } from "vue";
+import { computed, onScopeDispose, ref, watch, type ComputedRef } from "vue";
 import { TERMINAL_STATES } from "./states";
 
-type SlotProps = KnownSlotProps["topology-details"];
+// The Artifacts slot has the same props minus `progress`, which is unused here, so both slots fit.
+type SlotProps = KnownSlotProps["execution-artifact"];
 
 export interface StreamRow {
     name: string;
@@ -28,41 +29,212 @@ export interface Failure {
     stream?: string;
 }
 
+// The sync's own task run: `attempt-N` sub task runs carry a different taskId and have no outputs.
+export function latestTaskRun(execution: unknown, taskId: unknown) {
+    const list = (execution as { taskRunList?: any[] } | undefined)?.taskRunList;
+    return list?.filter((run: any) => run.taskId === taskId).at(-1);
+}
+
+const POLL_MS = 2000;
+// The host hands the plugin a snapshot of the execution taken when the view mounted, so a view opened on a
+// running sync never sees it end. Its outputs only exist once the task finishes: ask for them until they do.
+const DETECT_MS = 4000;
+// A long or orphaned run costs little: the interval grows by this factor, up to the maximum delay.
+const DETECT_GROWTH = 1.5;
+const DETECT_MAX_DELAY_MS = 30_000;
+// Hard cap, so a task that ended without outputs stops being polled. Long syncs exist (a verified one ran
+// close to 12 minutes), so 15 minutes covers them while the growing interval keeps the cost to ~35 calls.
+const DETECT_MAX_MS = 15 * 60 * 1000;
+// Pauses before asking again when a finished run answers with something that is not its outputs.
+const RETRY_MS = [300, 700];
+
+export type LoadState = "idle" | "loading" | "loaded" | "unsupported" | "unusable" | "error";
+
+const OUTPUT_KEYS = ["job", "metadata", "connection", "jobId", "jobUrl", "alreadyRunning"];
+
+// A task run's outputs are an object keyed by output name. The host also serves, one level up, the list of
+// task runs that have outputs (`[{ taskId, taskRunId, inline }]`): that must never be read as outputs.
+export function isSyncOutputs(value: unknown): value is Record<string, any> {
+    return (
+        !!value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        OUTPUT_KEYS.some((key) => key in value)
+    );
+}
+
+// A task run's state and completion, shared by every composable called with the same props: a view that
+// reads both the outputs and an endpoint still runs a single poller. Ref-counted, stopped with the last user.
+interface SharedTaskRun {
+    refs: number;
+    taskRun: ComputedRef<any>;
+    taskRunId: ComputedRef<string | undefined>;
+    taskRunState: ComputedRef<string | undefined>;
+    isTerminal: ComputedRef<boolean>;
+    stop: () => void;
+}
+const sharedTaskRuns = new WeakMap<object, SharedTaskRun>();
+
+function createTaskRun(props: SlotProps): SharedTaskRun {
+    const tick = ref(0);
+    const read = () => {
+        void tick.value;
+        return latestTaskRun(props.execution, props.task?.id);
+    };
+    // Each one re-reads the task run itself: a computed that returned the same (mutated) object would be cached.
+    const taskRun = computed(read);
+    const taskRunId = computed(() => read()?.id as string | undefined);
+    const taskRunState = computed(() => read()?.state?.current as string | undefined);
+    // Set when the outputs show up although the (possibly frozen) props still say the run is going.
+    const finished = ref(false);
+    const isTerminal = computed(
+        () => finished.value || TERMINAL_STATES.includes(taskRunState.value ?? ""),
+    );
+
+    const startedAt = Date.now();
+    const expired = () => Date.now() - startedAt > DETECT_MAX_MS;
+    let stopped = false;
+    let asking = false;
+    let delay = DETECT_MS;
+    let detector: ReturnType<typeof setTimeout> | undefined;
+
+    const timer = setInterval(() => {
+        if (isTerminal.value || expired()) return;
+        tick.value++;
+    }, POLL_MS);
+
+    // Limitation: a task that ends without outputs (killed, failed early, maxDuration) is only left alone by the
+    // cap. The host gives views no cheap "ended" signal: its metrics and the plugin endpoints answer the same
+    // for a run that is over and one that is going.
+    const schedule = () => {
+        if (stopped || isTerminal.value || expired()) return;
+        detector = setTimeout(detect, delay);
+    };
+    async function detect() {
+        const runId = read()?.id as string | undefined;
+        // Nothing is asked of a hidden tab: visibilitychange resumes the polling.
+        if (document.visibilityState === "hidden") return;
+        if (asking || !runId || typeof props.fetchOutputs !== "function") return schedule();
+        asking = true;
+        try {
+            if (isSyncOutputs(await props.fetchOutputs({ taskRunId: runId })))
+                finished.value = true;
+        } catch {
+            /* best-effort: try again on the next tick */
+        } finally {
+            asking = false;
+        }
+        delay = Math.min(delay * DETECT_GROWTH, DETECT_MAX_DELAY_MS);
+        schedule();
+    }
+    const resume = () => {
+        if (document.visibilityState === "hidden" || stopped || asking) return;
+        clearTimeout(detector);
+        void detect();
+    };
+    document.addEventListener("visibilitychange", resume);
+    schedule();
+
+    return {
+        refs: 0,
+        taskRun,
+        taskRunId,
+        taskRunState,
+        isTerminal,
+        stop() {
+            stopped = true;
+            clearInterval(timer);
+            clearTimeout(detector);
+            document.removeEventListener("visibilitychange", resume);
+        },
+    };
+}
+
+// The sync's task run, kept fresh while it has not ended. A host can update the execution in place, from its
+// own Vue runtime, or never (views get a snapshot taken at mount): while the run is not terminal, a timer
+// re-reads the props, and a slow, backing-off poll of fetchOutputs spots the end of the run.
+export function useTaskRun(props: SlotProps) {
+    let shared = sharedTaskRuns.get(props);
+    if (!shared) {
+        shared = createTaskRun(props);
+        sharedTaskRuns.set(props, shared);
+    }
+    const current = shared;
+    current.refs++;
+    onScopeDispose(() => {
+        if (--current.refs > 0) return;
+        current.stop();
+        sharedTaskRuns.delete(props);
+    });
+
+    const { taskRun, taskRunId, taskRunState, isTerminal } = current;
+    return { taskRun, taskRunId, taskRunState, isTerminal };
+}
+
 // Reads this task run's outputs through the host-provided lazy fetchers. Every field is optional:
 // executions that ran before an output existed, and Airbyte Cloud (no per-stream data), simply lack it.
 export function useSyncData(props: SlotProps) {
-    const taskId = computed(() => props.task?.id as string | undefined);
     const hasExecution = computed(() => !!props.execution?.id);
     const executionId = computed(() => props.execution?.id as string | undefined);
 
-    const taskRun = computed(() => {
-        const list = props.execution?.taskRunList as any[] | undefined;
-        return list?.filter((run: any) => run.taskId === taskId.value).at(-1);
-    });
+    const { taskRun, taskRunId, taskRunState, isTerminal } = useTaskRun(props);
 
     const outputs = ref<Record<string, any> | null>(null);
     const metrics = ref<{ name: string; value: number }[]>([]);
 
-    async function load() {
+    // Why there are no outputs: the host has no fetchOutputs, it answered with something that is not this task
+    // run's outputs (the execution-level list of task runs, an empty object), or the call failed.
+    const loadState = ref<LoadState>("idle");
+
+    // The reload at the end of the run can overlap the first load: only the latest request may write.
+    let requestId = 0;
+    async function load(attempt = 0) {
+        const current = ++requestId;
+        const runId = taskRun.value?.id;
+        // Without a task run the host would have to guess which one to read: wait until the execution has it.
+        if (!runId) return;
+        if (typeof props.fetchOutputs !== "function") {
+            loadState.value = "unsupported";
+            return;
+        }
+
+        loadState.value = "loading";
         try {
-            outputs.value = (await props.fetchOutputs?.({ taskRunId: taskRun.value?.id })) ?? null;
-        } catch {
-            /* best-effort */
+            const response = await props.fetchOutputs({ taskRunId: runId });
+            if (current !== requestId) return;
+            if (isSyncOutputs(response)) {
+                outputs.value = response;
+                loadState.value = "loaded";
+            } else if (isTerminal.value && attempt < RETRY_MS.length) {
+                setTimeout(() => current === requestId && load(attempt + 1), RETRY_MS[attempt]);
+                return;
+            } else if (!isTerminal.value) {
+                // A running sync has no outputs yet: this is the normal answer, reloaded when it ends.
+                loadState.value = "idle";
+            } else {
+                loadState.value = "unusable";
+                console.warn("[plugin-airbyte] Unusable task run outputs", {
+                    taskRunId: runId,
+                    response,
+                });
+            }
+        } catch (error) {
+            if (current === requestId) loadState.value = "error";
+            console.warn("[plugin-airbyte] Could not load the task run outputs", error);
         }
         try {
-            const response = await props.fetchMetrics?.({ taskRunId: taskRun.value?.id });
-            metrics.value = (response?.results as { name: string; value: number }[]) ?? [];
+            const response = await props.fetchMetrics?.({ taskRunId: runId });
+            if (current === requestId)
+                metrics.value = (response?.results as { name: string; value: number }[]) ?? [];
         } catch {
             /* best-effort */
         }
     }
 
     // A card opened while the sync is still running has no outputs yet: reload once the task run ends.
-    const taskRunState = computed(() => taskRun.value?.state?.current as string | undefined);
-    const isTerminal = computed(() => TERMINAL_STATES.includes(taskRunState.value ?? ""));
 
     watch(
-        [executionId, isTerminal],
+        [executionId, taskRunId, isTerminal],
         ([id]) => {
             if (id) load();
         },
@@ -105,6 +277,7 @@ export function useSyncData(props: SlotProps) {
     return {
         taskRunState,
         isTerminal,
+        loadState,
         hasExecution,
         taskOutputs,
         metrics,
