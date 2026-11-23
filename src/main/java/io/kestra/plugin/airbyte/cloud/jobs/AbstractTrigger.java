@@ -8,10 +8,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
 
 import com.airbyte.api.Airbyte;
+import com.airbyte.api.models.errors.SDKError;
+import com.airbyte.api.models.operations.CancelJobRequest;
 import com.airbyte.api.models.operations.CreateJobResponse;
 import com.airbyte.api.models.operations.GetConnectionRequest;
 import com.airbyte.api.models.operations.GetDestinationRequest;
@@ -23,6 +27,8 @@ import com.airbyte.api.models.shared.JobCreateRequest;
 import com.airbyte.api.models.shared.JobResponse;
 import com.airbyte.api.models.shared.JobStatusEnum;
 import com.airbyte.api.models.shared.JobTypeEnum;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
@@ -56,7 +62,9 @@ import io.kestra.core.models.annotations.PluginProperty;
 @NoArgsConstructor
 @Schema(
     title = "Run an Airbyte Cloud job",
-    description = "Creates an Airbyte Cloud job for a connection and, by default, waits for it to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`"
+    description = """
+        Creates an Airbyte Cloud job for a connection and, by default, waits for it to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`.
+        A retry or resubmission of the task run resumes the job it already created instead of creating a new one, unless that job failed or was cancelled. Killing the task cancels the job."""
 )
 @Plugin(
     examples = {
@@ -70,7 +78,12 @@ import io.kestra.core.models.annotations.PluginProperty;
     metrics = {
         @Metric(name = "bytes_synced", type = Counter.TYPE),
         @Metric(name = "rows_synced", type = Counter.TYPE),
-        @Metric(name = "duration", type = Timer.TYPE)
+        @Metric(name = "duration", type = Timer.TYPE),
+        @Metric(
+            name = "resumed",
+            type = Counter.TYPE,
+            description = "Whether the task resumed the job this task run created before it was interrupted (1) instead of creating a new one (0)"
+        )
     }
 )
 public abstract class AbstractTrigger extends AbstractAirbyteCloud implements RunnableTask<AbstractTrigger.Output> {
@@ -80,6 +93,22 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         JobStatusEnum.CANCELLED,
         JobStatusEnum.SUCCEEDED
     );
+
+    static final String CHECKPOINT_KEY = "airbyte.cloud.jobId";
+
+    @JsonIgnore
+    @Getter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    @Builder.Default
+    private final AtomicReference<Runnable> killable = new AtomicReference<>();
+
+    @JsonIgnore
+    @Getter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    @Builder.Default
+    private final AtomicBoolean isKilled = new AtomicBoolean(false);
 
     @Schema(
         title = "Connection ID",
@@ -139,14 +168,29 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
         Airbyte client = this.client(runContext);
 
         var rConnectionId = runContext.render(this.connectionId).as(String.class).orElse(null);
-        var createJobRequest = new JobCreateRequest(rConnectionId, this.syncType());
 
-        CreateJobResponse createJobResponse = client.jobs().createJob(createJobRequest);
-        this.validate(createJobResponse.rawResponse());
+        var resumed = this.findCheckpointedJob(runContext, client, rConnectionId);
+        runContext.metric(Counter.of("resumed", resumed.isPresent() ? 1 : 0));
 
-        Job createJob = Job.of(createJobResponse.jobResponse().orElseThrow());
+        Job createJob;
+        if (resumed.isPresent()) {
+            createJob = Job.of(resumed.get());
+            logger.info("Resuming job {} (status {}) this task run created before it was interrupted instead of creating a new one", createJob.jobId, createJob.status);
+        } else {
+            if (isKilled.get()) {
+                throw new IllegalStateException("The task was killed before the Airbyte Cloud job was created.");
+            }
+            var createJobRequest = new JobCreateRequest(rConnectionId, this.syncType());
 
-        logger.info("Job id {} with response: {}", createJob.jobId, createJob);
+            var createJobResponse = client.jobs().createJob(createJobRequest);
+            this.validate(createJobResponse.rawResponse());
+
+            createJob = Job.of(createJobResponse.jobResponse().orElseThrow(() -> new IllegalStateException("Airbyte Cloud returned no job when creating it.")));
+
+            logger.info("Job id {} with response: {}", createJob.jobId, createJob);
+        }
+
+        this.track(runContext, createJob.jobId);
 
         var snapshot = fetchSnapshot(runContext, rConnectionId);
 
@@ -196,6 +240,81 @@ public abstract class AbstractTrigger extends AbstractAirbyteCloud implements Ru
             throw new RunnableTaskException(failureMessage(finalJob.jobId, finalJob.status, output.getJobUrl()), output);
         }
         return output;
+    }
+
+    // A checkpoint store or Airbyte Cloud error other than a 404 is thrown: failing beats risking a second job.
+    private Optional<JobResponse> findCheckpointedJob(RunContext runContext, Airbyte client, String rConnectionId) throws Exception {
+        // A RunContext not initialized by a worker (runContextFactory.of) has no checkpoint store.
+        var checkpoints = runContext.checkpoints();
+        var saved = checkpoints == null ? Optional.<String>empty() : checkpoints.get(CHECKPOINT_KEY);
+        if (saved.isEmpty()) {
+            return Optional.empty();
+        }
+
+        long jobId;
+        try {
+            jobId = Long.parseLong(saved.get());
+        } catch (NumberFormatException e) {
+            runContext.logger().warn("Ignoring the job checkpoint '{}', it is not a job id", saved.get());
+            return Optional.empty();
+        }
+
+        GetJobResponse response;
+        try {
+            response = client.jobs().getJob(new GetJobRequest(jobId));
+        } catch (SDKError e) {
+            if (e.code() == 404) {
+                runContext.logger().warn("The checkpointed job {} no longer exists in Airbyte Cloud, a new job is created", jobId);
+                return Optional.empty();
+            }
+            throw e;
+        }
+        this.validate(response.rawResponse());
+
+        var job = response.jobResponse().orElse(null);
+        if (job == null || job.jobType() != this.syncType() || !rConnectionId.equals(job.connectionId())) {
+            return Optional.empty();
+        }
+        if (isFailure(job.status())) {
+            return Optional.empty();
+        }
+        return Optional.of(job);
+    }
+
+    private void track(RunContext runContext, Long jobId) {
+        try {
+            // A RunContext not initialized by a worker (runContextFactory.of) has no checkpoint store.
+            var checkpoints = runContext.checkpoints();
+            if (checkpoints != null) {
+                checkpoints.set(CHECKPOINT_KEY, jobId.toString());
+            }
+        } catch (Exception e) {
+            runContext.logger().warn("Could not save the job checkpoint, an interrupted task will create a new job: {}", e.getMessage());
+        }
+
+        killable.set(() -> this.cancelJob(runContext, jobId));
+        // A kill that landed before the job id was known: cancel now, getAndSet keeps it to one cancel.
+        if (isKilled.get()) {
+            Optional.ofNullable(killable.getAndSet(null)).ifPresent(Runnable::run);
+        }
+    }
+
+    // Single-attempt client: kill() must not wait behind the 5-minute retry loop.
+    private void cancelJob(RunContext runContext, Long jobId) {
+        try {
+            var response = this.snapshotClient(runContext).jobs().cancelJob(new CancelJobRequest(jobId));
+            this.validate(response.rawResponse());
+            runContext.logger().info("Cancelled Airbyte Cloud job {}", jobId);
+        } catch (Exception e) {
+            runContext.logger().warn("Could not cancel Airbyte Cloud job {}: {}", jobId, e.getMessage());
+        }
+    }
+
+    @Override
+    public void kill() {
+        if (isKilled.compareAndSet(false, true)) {
+            Optional.ofNullable(killable.getAndSet(null)).ifPresent(Runnable::run);
+        }
     }
 
     private Optional<ConnectionSnapshot> fetchSnapshot(RunContext runContext, String rConnectionId) {
