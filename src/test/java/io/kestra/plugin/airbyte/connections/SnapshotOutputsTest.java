@@ -15,14 +15,12 @@ import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTaskException;
-import io.kestra.core.queues.QueueFactoryInterface;
-import io.kestra.core.queues.QueueInterface;
+import io.kestra.core.queues.DispatchQueueInterface;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
 
 import jakarta.inject.Inject;
-import jakarta.inject.Named;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -44,8 +42,7 @@ class SnapshotOutputsTest {
     private RunContextFactory runContextFactory;
 
     @Inject
-    @Named(QueueFactoryInterface.WORKERTASKLOG_NAMED)
-    private QueueInterface<LogEntry> logQueue;
+    private DispatchQueueInterface<LogEntry> logQueue;
 
     private void stubSnapshotEndpoints() {
         stubSnapshotEndpoints(true);
@@ -248,32 +245,23 @@ class SnapshotOutputsTest {
         stubJob(93, "succeeded");
 
         var logs = new CopyOnWriteArrayList<LogEntry>();
-        var cancel = logQueue.receive(either ->
-        {
-            if (either.isLeft()) {
-                logs.add(either.getLeft());
-            }
-        });
+        logQueue.addListener(logs::add);
 
-        try {
-            var task = sync(wiremock).build();
-            var out = task.run(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
+        var task = sync(wiremock).build();
+        var out = task.run(TestsUtils.mockRunContext(runContextFactory, task, Map.of()));
 
-            assertThat(out.getJob().getStatus().toString(), is("succeeded"));
-            assertThat(out.getConnection(), nullValue());
-            assertThat(out.getConnectionSnapshot(), nullValue());
-            assertThat(out.getJobUrl(), nullValue());
-            verify(exactly(1), postRequestedFor(urlPathMatching("/api/v1/connections/get/?")));
+        assertThat(out.getJob().getStatus().toString(), is("succeeded"));
+        assertThat(out.getConnection(), nullValue());
+        assertThat(out.getConnectionSnapshot(), nullValue());
+        assertThat(out.getJobUrl(), nullValue());
+        verify(exactly(1), postRequestedFor(urlPathMatching("/api/v1/connections/get/?")));
 
-            var warnings = TestsUtils.awaitLogs(
-                logs,
-                log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Unable to read the configuration of connection"),
-                1
-            );
-            assertThat(warnings.getFirst().getMessage(), containsString(CONNECTION_ID));
-        } finally {
-            cancel.run();
-        }
+        var warnings = TestsUtils.awaitLogs(
+            logs,
+            log -> log.getLevel() == Level.WARN && log.getMessage() != null && log.getMessage().contains("Unable to read the configuration of connection"),
+            1
+        );
+        assertThat(warnings.getFirst().getMessage(), containsString(CONNECTION_ID));
     }
 
     @Test

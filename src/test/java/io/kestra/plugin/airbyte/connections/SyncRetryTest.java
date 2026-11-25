@@ -269,7 +269,7 @@ class SyncRetryTest {
             .build();
 
         var exception = assertThrows(IllegalStateException.class, () -> task.run(runContext));
-        assertThat(exception.getMessage(), is("Airbyte reported a job already running for connection conn-reset-conflict, but no active sync job was found; retry the task"));
+        assertThat(exception.getMessage(), is("Airbyte reported a job already running for connection conn-reset-conflict, but no active sync job was found. Retry the task."));
 
         verify(exactly(1), postRequestedFor(urlPathMatching("/api/v1/connections/sync/?")));
     }

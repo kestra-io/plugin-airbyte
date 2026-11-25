@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
 
@@ -17,6 +19,7 @@ import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.http.HttpResponse;
 import io.kestra.core.http.client.HttpClientException;
+import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Metric;
 import io.kestra.core.models.annotations.Plugin;
@@ -32,6 +35,7 @@ import io.kestra.plugin.airbyte.ConnectionSnapshots;
 import io.kestra.plugin.airbyte.models.ConnectionSnapshot;
 import io.kestra.plugin.airbyte.models.ConnectionSummary;
 import io.kestra.plugin.airbyte.models.JobConfigType;
+import io.kestra.plugin.airbyte.models.Job;
 import io.kestra.plugin.airbyte.models.JobInfo;
 import io.kestra.plugin.airbyte.models.JobList;
 import io.kestra.plugin.airbyte.models.JobStatus;
@@ -54,6 +58,8 @@ import io.kestra.core.models.annotations.PluginProperty;
     title = "Run an Airbyte connection sync",
     description = """
         Starts a sync for an Airbyte connection and, by default, waits for the job to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`. If a sync is already running for the connection, the task adopts it and polls it to completion instead of failing or blindly re-triggering — see `onActiveSync`.
+
+        A retry or resubmission of the task run resumes the job it already triggered instead of starting a new sync, unless that job failed or was cancelled. Killing the task cancels a job it triggered, never an adopted one.
 
         When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records.
 
@@ -188,6 +194,11 @@ import io.kestra.core.models.annotations.PluginProperty;
             name = "duration",
             type = Timer.TYPE,
             description = "Time between the start of the job and the end of its last attempt (emitted when `wait` is enabled)"
+        ),
+        @Metric(
+            name = "resumed",
+            type = Counter.TYPE,
+            description = "Whether the task resumed the job this task run triggered before it was interrupted (1) instead of starting a new sync (0)"
         )
     }
 )
@@ -198,6 +209,22 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         JobStatus.RUNNING,
         JobStatus.INCOMPLETE
     );
+
+    static final String CHECKPOINT_KEY = "airbyte.jobId";
+
+    @JsonIgnore
+    @Getter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    @Builder.Default
+    private final AtomicReference<Runnable> killable = new AtomicReference<>();
+
+    @JsonIgnore
+    @Getter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    @Builder.Default
+    private final AtomicBoolean isKilled = new AtomicBoolean(false);
 
     @Schema(
         title = "Connection ID",
@@ -269,37 +296,55 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
         String rConnectionId = runContext.render(this.connectionId).as(String.class).orElseThrow();
         OnActiveSync policy = resolveOnActiveSyncPolicy(runContext);
 
-        Optional<Long> activeJobId = findActiveSyncJob(runContext, rConnectionId);
-        boolean adopted = activeJobId.isPresent();
+        var resumed = this.findCheckpointedJob(runContext, rConnectionId);
+        runContext.metric(Counter.of("resumed", resumed.isPresent() ? 1 : 0));
+
+        boolean adopted = false;
         Long jobId;
 
-        if (adopted) {
-            jobId = activeJobId.get();
+        if (resumed.isPresent()) {
+            jobId = resumed.get().getId();
+            logger.info("Resuming job {} (status {}) this task run triggered before it was interrupted instead of triggering a new sync", jobId, resumed.get().getStatus());
         } else {
-            try {
-                jobId = triggerSync(runContext, rConnectionId);
-            } catch (SyncAlreadyRunningException e) {
-                activeJobId = findActiveSyncJob(runContext, rConnectionId);
-                if (activeJobId.isEmpty()) {
-                    if (policy == OnActiveSync.SKIP) {
-                        return skippedOutput();
-                    }
-                    throw new IllegalStateException(
-                        "Airbyte reported a job already running for connection " + rConnectionId + ", but no active sync job was found; retry the task",
-                        e
-                    );
-                }
-                adopted = true;
+            var activeJobId = findActiveSyncJob(runContext, rConnectionId);
+            adopted = activeJobId.isPresent();
+
+            if (adopted) {
                 jobId = activeJobId.get();
+            } else {
+                if (isKilled.get()) {
+                    throw new IllegalStateException("The task was killed before the Airbyte sync was triggered.");
+                }
+                try {
+                    jobId = triggerSync(runContext, rConnectionId);
+                } catch (SyncAlreadyRunningException e) {
+                    activeJobId = findActiveSyncJob(runContext, rConnectionId);
+                    if (activeJobId.isEmpty()) {
+                        if (policy == OnActiveSync.SKIP) {
+                            return skippedOutput();
+                        }
+                        throw new IllegalStateException(
+                            "Airbyte reported a job already running for connection %s, but no active sync job was found. Retry the task.".formatted(rConnectionId),
+                            e
+                        );
+                    }
+                    adopted = true;
+                    jobId = activeJobId.get();
+                }
+            }
+
+            if (adopted) {
+                var policyOutput = applyOnActiveSyncPolicy(policy, rConnectionId, jobId);
+                if (policyOutput != null) {
+                    return policyOutput;
+                }
+                logger.info("A sync is already running for connection {}, adopting job {}", rConnectionId, jobId);
             }
         }
 
-        if (adopted) {
-            Output policyOutput = applyOnActiveSyncPolicy(policy, rConnectionId, jobId);
-            if (policyOutput != null) {
-                return policyOutput;
-            }
-            logger.info("A sync is already running for connection {}, adopting job {}", rConnectionId, jobId);
+        // An adopted job was started elsewhere: no checkpoint and no cancel on kill, a retry adopts it again.
+        if (!adopted) {
+            this.track(runContext, jobId);
         }
 
         var snapshot = ConnectionSnapshots.fetch(this, runContext, rConnectionId).orElse(null);
@@ -420,6 +465,101 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
 
         runContext.logger().info("Job status {} with response: {}", syncResponse.getStatus(), jobInfoRead);
         return jobInfoRead.getJob().getId();
+    }
+
+    // A checkpoint store or Airbyte error other than a 404 is thrown: failing beats risking a second sync.
+    private Optional<Job> findCheckpointedJob(RunContext runContext, String rConnectionId) throws Exception {
+        // A RunContext not initialized by a worker (runContextFactory.of) has no checkpoint store.
+        var checkpoints = runContext.checkpoints();
+        var saved = checkpoints == null ? Optional.<String>empty() : checkpoints.get(CHECKPOINT_KEY);
+        if (saved.isEmpty()) {
+            return Optional.empty();
+        }
+
+        long jobId;
+        try {
+            jobId = Long.parseLong(saved.get());
+        } catch (NumberFormatException e) {
+            runContext.logger().warn("Ignoring the job checkpoint '{}', it is not a job id", saved.get());
+            return Optional.empty();
+        }
+
+        JobInfo jobInfo;
+        try {
+            jobInfo = this.request(runContext, this.jobRequest(runContext, "get", jobId), JobInfo.class).getBody();
+        } catch (RuntimeException e) {
+            if (isNotFound(e)) {
+                runContext.logger().warn("The checkpointed job {} no longer exists in Airbyte, a new sync is triggered", jobId);
+                return Optional.empty();
+            }
+            throw e;
+        }
+
+        var job = jobInfo == null ? null : jobInfo.getJob();
+        if (job == null || job.getConfigType() != JobConfigType.SYNC || !rConnectionId.equals(job.getConfigId())) {
+            return Optional.empty();
+        }
+        if (job.getStatus() == null || job.getStatus() == JobStatus.FAILED || job.getStatus() == JobStatus.CANCELLED) {
+            return Optional.empty();
+        }
+        return Optional.of(job);
+    }
+
+    private static boolean isNotFound(Throwable e) {
+        for (var cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof HttpClientResponseException responseException
+                && responseException.getResponse() != null
+                && responseException.getResponse().getStatus().getCode() == 404) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void track(RunContext runContext, Long jobId) {
+        try {
+            // A RunContext not initialized by a worker (runContextFactory.of) has no checkpoint store.
+            var checkpoints = runContext.checkpoints();
+            if (checkpoints != null) {
+                checkpoints.set(CHECKPOINT_KEY, jobId.toString());
+            }
+        } catch (Exception e) {
+            runContext.logger().warn("Could not save the job checkpoint, an interrupted task will trigger a new sync: {}", e.getMessage());
+        }
+
+        killable.set(() -> this.cancelJob(runContext, jobId));
+        // A kill that landed before the job id was known: cancel now, getAndSet keeps it to one cancel.
+        if (isKilled.get()) {
+            Optional.ofNullable(killable.getAndSet(null)).ifPresent(Runnable::run);
+        }
+    }
+
+    private void cancelJob(RunContext runContext, Long jobId) {
+        try {
+            this.requestOnce(runContext, this.jobRequest(runContext, "cancel", jobId), JobInfo.class);
+            runContext.logger().info("Cancelled Airbyte job {}", jobId);
+        } catch (Exception e) {
+            runContext.logger().warn("Could not cancel Airbyte job {}: {}", jobId, e.getMessage());
+        }
+    }
+
+    private HttpRequest.HttpRequestBuilder jobRequest(RunContext runContext, String action, long jobId) throws IllegalVariableEvaluationException {
+        return HttpRequest.builder()
+            .uri(URI.create("%s/api/v1/jobs/%s".formatted(this.baseUrl(runContext), action)))
+            .method("POST")
+            .addHeader("Accept-Encoding", "identity")
+            .body(
+                HttpRequest.JsonRequestBody.builder()
+                    .content(Map.of("id", jobId))
+                    .build()
+            );
+    }
+
+    @Override
+    public void kill() {
+        if (isKilled.compareAndSet(false, true)) {
+            Optional.ofNullable(killable.getAndSet(null)).ifPresent(Runnable::run);
+        }
     }
 
     private Optional<Long> findActiveSyncJob(RunContext runContext, String connectionId) throws Exception {
