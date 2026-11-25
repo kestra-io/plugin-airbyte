@@ -133,6 +133,23 @@ class SyncCheckpointTest {
     }
 
     @Test
+    void killDoesNotCancelAnAdoptedJob(WireMockRuntimeInfo wiremock) throws Exception {
+        var task = task(wiremock);
+        var runContext = TestsUtils.mockRunContext(runContextFactory, task, Map.of());
+        stubFor(post(urlPathMatching("/api/v1/jobs/list/?")).willReturn(okJson("""
+            { "jobs": [ %s ], "totalJobCount": 1 }
+            """.formatted(job(125, "running")))));
+        stubFor(post(urlPathMatching("/api/v1/jobs/cancel/?")).willReturn(okJson(job(125, "cancelled"))));
+
+        var output = task.run(runContext);
+        task.kill();
+
+        assertThat(output.getAdopted(), is(true));
+        assertThat(runContext.checkpoints().get(Sync.CHECKPOINT_KEY), is(Optional.empty()));
+        verify(0, postRequestedFor(urlPathMatching("/api/v1/jobs/cancel/?")));
+    }
+
+    @Test
     void killBeforeTriggerStartsNoSync(WireMockRuntimeInfo wiremock) throws Exception {
         var task = task(wiremock);
         var runContext = TestsUtils.mockRunContext(runContextFactory, task, Map.of());

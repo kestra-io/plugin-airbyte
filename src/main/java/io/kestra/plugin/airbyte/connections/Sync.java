@@ -59,7 +59,7 @@ import io.kestra.core.models.annotations.PluginProperty;
     description = """
         Starts a sync for an Airbyte connection and, by default, waits for the job to finish. Polling runs every second for up to 60 minutes unless you change `pollFrequency` or `maxDuration`. If a sync is already running for the connection, the task adopts it and polls it to completion instead of failing or blindly re-triggering — see `onActiveSync`.
 
-        A retry or resubmission of the task run resumes the job it already triggered instead of starting a new sync, unless that job failed or was cancelled. Killing the task cancels the job.
+        A retry or resubmission of the task run resumes the job it already triggered instead of starting a new sync, unless that job failed or was cancelled. Killing the task cancels a job it triggered, never an adopted one.
 
         When the job ends in any state other than `SUCCEEDED`, the task fails but keeps its outputs (`job`, `attempts`, `metadata`, ...), so `errors` and `finally` branches can read them. Set `onPartialSuccess: WARNING` to end in `WARNING` instead when the job failed after committing records.
 
@@ -342,7 +342,10 @@ public class Sync extends AbstractAirbyteConnection implements RunnableTask<Sync
             }
         }
 
-        this.track(runContext, jobId);
+        // An adopted job was started elsewhere: no checkpoint and no cancel on kill, a retry adopts it again.
+        if (!adopted) {
+            this.track(runContext, jobId);
+        }
 
         var snapshot = ConnectionSnapshots.fetch(this, runContext, rConnectionId).orElse(null);
 
